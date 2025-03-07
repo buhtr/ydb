@@ -16,6 +16,10 @@ namespace NYql::NConnector {
             return Streamer_->ReadNext(Streamer_);
         }
 
+        std::shared_ptr<TStreamer<TResponse>> GetStreamer() {
+            return Streamer_;
+        }
+
     private:
         std::shared_ptr<TStreamer<TResponse>> Streamer_;
     };
@@ -153,7 +157,87 @@ namespace NYql::NConnector {
         std::shared_ptr<NYdbGrpc::TServiceConnection<NApi::Connector>> GrpcConnection_;
     };
 
+    
+    class TConnectorService : public IClient {
+    public:
+        TConnectorService() = delete;
+
+        TConnectorService(const TGenericConnectorConfig & config) : GatewayConfig_(config) {
+        }
+
+        ~TConnectorService() {
+        }
+
+    public: 
+        virtual TDescribeTableAsyncResult DescribeTable(const NApi::TDescribeTableRequest& request, TDuration timeout = {}) override {
+            auto c = createClient();
+            auto future = c->DescribeTable(request, timeout);
+            
+            return future.Apply([c = std::move(c)](const NThreading::TFuture<TResult<NApi::TDescribeTableResponse>> & f) mutable {
+                c.reset();
+                Cerr << "Clear GRPC client for describe, count: " << c.use_count();;
+                return f;
+            });
+        }
+
+        virtual TListSplitsStreamIteratorAsyncResult ListSplits(const NApi::TListSplitsRequest& request, TDuration timeout = {}) override {
+            auto c =  createClient();
+            auto future = c->ListSplits(request, timeout);
+
+            return wrapStreamResult<NApi::TListSplitsResponse>(future, c);
+        }
+
+        virtual TReadSplitsStreamIteratorAsyncResult ReadSplits(const NApi::TReadSplitsRequest& request, TDuration timeout = {}) override {
+            auto c =  createClient();
+            auto future = c->ReadSplits(request, timeout);
+
+            return wrapStreamResult<NApi::TReadSplitsResponse>(future, c);
+        }
+ 
+    private: 
+        IClient::TPtr createClient() {
+            Cerr << "Create GRPC client for query";
+            return std::make_shared<TClientGRPC>(GatewayConfig_);
+        }
+
+        template<class T>
+        TIteratorAsyncResult<IStreamIterator<T>> wrapStreamResult(const TIteratorAsyncResult<IStreamIterator<T>> & future, IClient::TPtr client) {
+            return future.Apply([client = std::move(client)](const NThreading::TFuture<TIteratorResult<IStreamIterator<T>>> & f) mutable {
+                auto value = f.GetValue();
+                auto it = std::make_shared<TWrapStream<T>>(value.Iterator, client);
+                return NThreading::MakeFuture<TIteratorResult<IStreamIterator<T>>>({value.Status, it});
+            });
+        }
+    private: 
+
+        template<typename T>
+        class TWrapStream final : public IStreamIterator<T> {
+        public: 
+            TWrapStream(const std::shared_ptr<IStreamIterator<T>> & r, const IClient::TPtr client) 
+                : Stream_(r), Client_(client) {
+        
+            }
+
+            TAsyncResult<T> ReadNext() {
+                return Stream_->ReadNext();
+            }
+
+            ~TWrapStream() {
+                Client_.reset();
+                Cerr << "Clear GRPC client for a stream, count: " << Client_.use_count();
+            }
+        private: 
+            std::shared_ptr<IStreamIterator<T>> Stream_;
+            IClient::TPtr Client_;
+        };
+
+    private: 
+        const TGenericConnectorConfig & GatewayConfig_;
+    };
+
+
     IClient::TPtr MakeClientGRPC(const NYql::TGenericConnectorConfig& cfg) {
-        return std::make_shared<TClientGRPC>(cfg);
+        return std::make_shared<TConnectorService>(cfg);
+        //return std::make_shared<TClientGRPC>(cfg);
     }
 } // namespace NYql::NConnector

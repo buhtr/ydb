@@ -173,5 +173,7 @@ namespace NYql::NConnector {
         virtual ~IClient() = default;
     };
 
+    
     IClient::TPtr MakeClientGRPC(const NYql::TGenericConnectorConfig& cfg);
+
 } // namespace NYql::NConnector

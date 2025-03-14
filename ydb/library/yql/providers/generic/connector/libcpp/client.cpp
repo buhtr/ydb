@@ -50,15 +50,6 @@ namespace NYql::NConnector {
             GrpcConfig_.SslCredentials = grpc::SslCredentialsOptions{.pem_root_certs = rootCertData, .pem_private_key = "", .pem_cert_chain = ""};
 
             GrpcClient_ = std::make_unique<NYdbGrpc::TGRpcClientLow>();
-
-            // FIXME: is it OK to use single connection during the client lifetime?
-            GrpcConnection_ = GrpcClient_->CreateGRpcServiceConnection<NApi::Connector>(GrpcConfig_, NYdbGrpc::TTcpKeepAliveSettings {
-                    // TODO configure hardcoded values
-                    .Enabled = true,
-                    .Idle = 30,
-                    .Count = 5,
-                    .Interval = 10
-            });
         }
 
         virtual TDescribeTableAsyncResult DescribeTable(const NApi::TDescribeTableRequest& request, TDuration timeout = {}) override {
@@ -78,6 +69,16 @@ namespace NYql::NConnector {
         }
 
     private:
+        std::unique_ptr<NYdbGrpc::TServiceConnection<NApi::Connector>> CreateConnection() {
+            return GrpcClient_->CreateGRpcServiceConnection<NApi::Connector>(GrpcConfig_, NYdbGrpc::TTcpKeepAliveSettings {
+                // TODO configure hardcoded values
+                .Enabled = true,
+                .Idle = 30,
+                .Count = 5,
+                .Interval = 10
+            });
+        }
+
         template <class TService, class TRequest, class TResponse, template <typename TA, typename TB, typename TC> class TStream>
         using TStreamRpc =
             typename TStream<
@@ -99,7 +100,7 @@ namespace NYql::NConnector {
                 promise.SetValue({std::move(status), std::move(resp)});
             };
 
-            GrpcConnection_->DoRequest<TRequest, TResponse>(
+            CreateConnection()->DoRequest<TRequest, TResponse>(
                 std::move(request),
                 std::move(callback),
                 rpc,
@@ -124,7 +125,7 @@ namespace NYql::NConnector {
                 throw yexception() << "Client is being shutdown";
             }
 
-            GrpcConnection_->DoStreamRequest<TRequest, TResponse>(
+            CreateConnection()->DoStreamRequest<TRequest, TResponse>(
                 request,
                 [context, promise](NYdbGrpc::TGrpcStatus&& status, TStreamProcessorPtr streamProcessor) mutable {
                     promise.SetValue({std::move(status), streamProcessor});
@@ -150,7 +151,6 @@ namespace NYql::NConnector {
     private:
         NYdbGrpc::TGRpcClientConfig GrpcConfig_;
         std::unique_ptr<NYdbGrpc::TGRpcClientLow> GrpcClient_;
-        std::shared_ptr<NYdbGrpc::TServiceConnection<NApi::Connector>> GrpcConnection_;
     };
 
     IClient::TPtr MakeClientGRPC(const NYql::TGenericConnectorConfig& cfg) {

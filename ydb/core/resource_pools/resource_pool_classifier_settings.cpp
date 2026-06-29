@@ -44,12 +44,16 @@ std::unordered_map<TString, TClassifierSettings::TProperty> TClassifierSettings:
     std::unordered_map<TString, TProperty> properties = {
         {"rank", &Rank},
         {"resource_pool", &ResourcePool},
-        {"member_name", &MemberName}
+        {"member_name", &MemberName},
+        {"action", &Action}
     };
     return properties;
 }
 
 std::optional<TString> TClassifierSettings::Validate() const {
+    if (Action != CLASSIFIER_ACTION_ROUTE && Action != CLASSIFIER_ACTION_REJECT) {
+        return TStringBuilder() << "Invalid resource pool classifier action '" << Action << "', allowed values are '" << CLASSIFIER_ACTION_ROUTE << "' and '" << CLASSIFIER_ACTION_REJECT << "'";
+    }
     if (!MemberName) {
         return std::nullopt;
     }

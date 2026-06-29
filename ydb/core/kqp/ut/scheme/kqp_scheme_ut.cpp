@@ -12553,6 +12553,22 @@ Y_UNIT_TEST_SUITE(KqpScheme) {
             TStringBuilder() << "Invalid resource pool classifier configuration, cannot create classifier for system user " << BUILTIN_ACL_METADATA,
             result.GetIssues().ToString()
         );
+
+        result = session.ExecuteSchemeQuery(R"(
+            CREATE RESOURCE POOL CLASSIFIER MyRejectClassifier WITH (
+                ACTION="reject",
+                RESOURCE_POOL="test"
+            );)").GetValueSync();
+        UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::GENERIC_ERROR);
+        UNIT_ASSERT_STRING_CONTAINS_C(result.GetIssues().ToString(), "Property resource_pool is not allowed when action='reject'", result.GetIssues().ToString());
+
+        result = session.ExecuteSchemeQuery(R"(
+            CREATE RESOURCE POOL CLASSIFIER MyInvalidActionClassifier WITH (
+                ACTION="deny",
+                RESOURCE_POOL="test"
+            );)").GetValueSync();
+        UNIT_ASSERT_VALUES_EQUAL(result.GetStatus(), EStatus::GENERIC_ERROR);
+        UNIT_ASSERT_STRING_CONTAINS_C(result.GetIssues().ToString(), "Invalid resource pool classifier action 'deny'", result.GetIssues().ToString());
     }
 
     Y_UNIT_TEST(ResourcePoolClassifiersRankValidation) {
@@ -12659,6 +12675,34 @@ Y_UNIT_TEST_SUITE(KqpScheme) {
         result = session.ExecuteSchemeQuery(query).GetValueSync();
         UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
         UNIT_ASSERT_VALUES_EQUAL(FetchResourcePoolClassifiers(kikimr), "{\"resource_pool_classifiers\":[{\"rank\":20,\"name\":\"MyResourcePoolClassifier\",\"config\":{\"member_name\":\"test@user\",\"resource_pool\":\"test_pool\"},\"database\":\"\\/Root\"},{\"rank\":1020,\"name\":\"AnotherResourcePoolClassifier\",\"config\":{\"member_name\":\"another@user\",\"resource_pool\":\"test_pool\"},\"database\":\"\\/Root\"}]}");
+
+        // Reject action without resource_pool
+        query = R"(
+            CREATE RESOURCE POOL CLASSIFIER RejectClassifier WITH (
+                RANK=50,
+                ACTION="reject",
+                MEMBER_NAME="reject@user"
+            );)";
+        result = session.ExecuteSchemeQuery(query).GetValueSync();
+        UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
+        const auto snapshotAfterReject = FetchResourcePoolClassifiers(kikimr);
+        UNIT_ASSERT_STRING_CONTAINS(snapshotAfterReject, "\"name\":\"RejectClassifier\"");
+        UNIT_ASSERT_STRING_CONTAINS(snapshotAfterReject, "\"action\":\"reject\"");
+        UNIT_ASSERT_C(!snapshotAfterReject.Contains("\"resource_pool\":\"\"") &&
+            snapshotAfterReject.Contains("\"name\":\"RejectClassifier\",\"config\":{\"action\":\"reject\",\"member_name\":\"reject@user\"}"),
+            snapshotAfterReject);
+
+        // Reject action accepts mixed-case input
+        query = R"(
+            CREATE RESOURCE POOL CLASSIFIER RejectMixedCaseClassifier WITH (
+                RANK=60,
+                ACTION="Reject",
+                MEMBER_NAME="rejectmixed@user"
+            );)";
+        result = session.ExecuteSchemeQuery(query).GetValueSync();
+        UNIT_ASSERT_VALUES_EQUAL_C(result.GetStatus(), EStatus::SUCCESS, result.GetIssues().ToString());
+        UNIT_ASSERT_STRING_CONTAINS(FetchResourcePoolClassifiers(kikimr),
+            "\"name\":\"RejectMixedCaseClassifier\",\"config\":{\"action\":\"reject\",\"member_name\":\"rejectmixed@user\"}");
     }
 
     Y_UNIT_TEST(CreateResourcePoolClassifierOnServerless) {

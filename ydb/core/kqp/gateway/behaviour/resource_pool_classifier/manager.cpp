@@ -50,6 +50,9 @@ NMetadata::NModifications::TOperationParsingResult TResourcePoolClassifierManage
     TClassifierSettings resourcePoolClassifierSettings;
     for (const auto& [property, setting] : resourcePoolClassifierSettings.GetPropertiesMap()) {
         if (std::optional<TString> value = featuresExtractor.Extract(property)) {
+            if (property == "action") {
+                value->to_lower();
+            }
             try {
                 std::visit(TClassifierSettings::TParser{*value}, setting);
             } catch (const yexception& error) {
@@ -71,8 +74,13 @@ NMetadata::NModifications::TOperationParsingResult TResourcePoolClassifierManage
         }
     }
 
+    const bool isRejectAction = resourcePoolClassifierSettings.Action == CLASSIFIER_ACTION_REJECT;
+    if (isRejectAction && configJson.GetMap().contains("resource_pool")) {
+        return TConclusionStatus::Fail(TStringBuilder() << "Property resource_pool is not allowed when action='" << CLASSIFIER_ACTION_REJECT << "'");
+    }
+
     if (context.GetActivityType() == EActivityType::Create) {
-        if (!configJson.GetMap().contains("resource_pool")) {
+        if (!isRejectAction && !configJson.GetMap().contains("resource_pool")) {
             return TConclusionStatus::Fail("Missing required property resource_pool");
         }
 

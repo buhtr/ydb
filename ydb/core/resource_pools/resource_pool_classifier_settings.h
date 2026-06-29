@@ -10,6 +10,9 @@ namespace NKikimr::NResourcePool {
 inline constexpr i64 CLASSIFIER_RANK_OFFSET = 1000;
 inline constexpr i64 CLASSIFIER_COUNT_LIMIT = 1000;
 
+inline constexpr char CLASSIFIER_ACTION_ROUTE[] = "route";
+inline constexpr char CLASSIFIER_ACTION_REJECT[] = "reject";
+
 struct TClassifierSettings : public TSettingsBase {
     using TBase = TSettingsBase;
     using TProperty = std::variant<i64*, TString*, std::optional<TString>*>;
@@ -34,6 +37,7 @@ struct TClassifierSettings : public TSettingsBase {
     i64 Rank = -1;  // -1 = max rank + CLASSIFIER_RANK_OFFSET
     TString ResourcePool = DEFAULT_POOL_ID;
     std::optional<TString> MemberName;
+    TString Action = CLASSIFIER_ACTION_ROUTE;
 };
 
 }  // namespace NKikimr::NResourcePool

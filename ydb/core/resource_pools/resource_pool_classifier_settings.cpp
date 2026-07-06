@@ -44,7 +44,8 @@ std::unordered_map<TString, TClassifierSettings::TProperty> TClassifierSettings:
     std::unordered_map<TString, TProperty> properties = {
         {"rank", &Rank},
         {"resource_pool", &ResourcePool},
-        {"member_name", &MemberName}
+        {"member_name", &MemberName},
+        {"has_app_name", &HasAppName}
     };
     return properties;
 }

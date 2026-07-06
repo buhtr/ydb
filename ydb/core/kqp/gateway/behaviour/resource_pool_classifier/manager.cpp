@@ -1,5 +1,6 @@
 #include "manager.h"
 #include "checker.h"
+#include "predicate_compile.h"
 
 #include <ydb/core/base/path.h>
 #include <ydb/core/resource_pools/resource_pool_classifier_settings.h>
@@ -84,6 +85,10 @@ NMetadata::NModifications::TOperationParsingResult TResourcePoolClassifierManage
     }
     if (auto error = resourcePoolClassifierSettings.Validate()) {
         return TConclusionStatus::Fail(TStringBuilder() << "Invalid resource pool classifier settings: " << *error);
+    }
+
+    if (resourcePoolClassifierSettings.HasAppName && !CompilePredicateRegex(*resourcePoolClassifierSettings.HasAppName)) {
+        return TConclusionStatus::Fail(TStringBuilder() << "Invalid regex in HAS_APP_NAME: '" << *resourcePoolClassifierSettings.HasAppName << "'");
     }
 
     NJsonWriter::TBuf writer;

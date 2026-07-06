@@ -7,10 +7,12 @@ SRCS(
     initializer.cpp
     manager.cpp
     object.cpp
+    predicate_compile.cpp
     snapshot.cpp
 )
 
 PEERDIR(
+    library/cpp/regex/pcre
     ydb/core/cms/console
     ydb/core/kqp/workload_service/actors
     ydb/core/protos
@@ -24,3 +26,7 @@ PEERDIR(
 YQL_LAST_ABI_VERSION()
 
 END()
+
+RECURSE_FOR_TESTS(
+    ut
+)

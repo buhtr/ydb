@@ -1,5 +1,6 @@
 #include "kqp_query_classifier.h"
 #include "kqp_workload_service.h"
+#include "classifier_matchers/kqp_has_app_name.h"
 
 namespace NKikimr::NKqp {
 
@@ -38,12 +39,11 @@ public:
         }
 
         for (const auto& [rank, value] : *ClassifierView) {
-            const NResourcePool::TClassifierSettings& settings = value.GetClassifierSettings();
-
-            if (!MatchesStatic(settings)) {
+            if (!MatchesStatic(value)) {
                 continue;
             }
 
+            const NResourcePool::TClassifierSettings settings = value.GetClassifierSettings();
             if (NeedsPreparedQuery(settings)) {
                 return *PreClassifyResult = TPendingCompilation{.ResumeRank = rank};
             }
@@ -67,12 +67,11 @@ public:
         const auto& pending = std::get<TPendingCompilation>(*PreClassifyResult);
 
         for (auto it = ClassifierView->lower_bound(pending.ResumeRank); it != ClassifierView->end(); ++it) {
-            const auto& settings = it->second.GetClassifierSettings();
-
-            if (!MatchesStatic(settings)) {
+            if (!MatchesStatic(it->second)) {
                 continue;
             }
 
+            const auto settings = it->second.GetClassifierSettings();
             if (!MatchesDynamic(settings, preparedQuery)) {
                 continue;
             }
@@ -140,8 +139,13 @@ private:
     /// - Independent of SQL analysis, plan building, or computations.
     /// - Provided as session/connection metadata alongside the query.
     ///
-    bool MatchesStatic(const NResourcePool::TClassifierSettings& s) const {
-        if (s.MemberName && !MatchesMemberName(*s.MemberName)) {
+    bool MatchesStatic(const TResourcePoolClassifierConfig& config) const {
+        if (!MatchesHasAppName(config.GetCompiledHasAppName(), Context.AppName)) {
+            return false;
+        }
+
+        const auto settings = config.GetClassifierSettings();
+        if (settings.MemberName && !MatchesMemberName(*settings.MemberName)) {
             return false;
         }
 

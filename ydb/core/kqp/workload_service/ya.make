@@ -1,11 +1,14 @@
 LIBRARY()
 
 SRCS(
+    classifier_matchers/kqp_has_app_name.cpp
     kqp_query_classifier.cpp
     kqp_workload_service.cpp
 )
 
 PEERDIR(
+    library/cpp/regex/pcre
+
     ydb/core/cms/console
 
     ydb/core/fq/libs/compute/common

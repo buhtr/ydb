@@ -5,6 +5,11 @@
 #include <ydb/services/metadata/abstract/decoder.h>
 #include <ydb/services/metadata/manager/object.h>
 
+#include <memory>
+
+
+class TRegExMatch;
+
 
 namespace NKikimr::NKqp {
 
@@ -15,6 +20,7 @@ class TResourcePoolClassifierConfig : public NMetadata::NModifications::TObject<
     YDB_ACCESSOR_DEF(TString, Name);
     YDB_ACCESSOR_DEF(i64, Rank);
     YDB_ACCESSOR_DEF(NJson::TJsonValue, ConfigJson);
+    YDB_ACCESSOR_DEF(std::shared_ptr<TRegExMatch>, CompiledHasAppName);
 
 public:
     class TDecoder : public NMetadata::NInternal::TDecoderBase {

@@ -1,11 +1,17 @@
 #include "snapshot.h"
 
+#include "predicate_compile.h"
+
 
 namespace NKikimr::NKqp {
 
 bool TResourcePoolClassifierSnapshot::DoDeserializeFromResultSet(const Ydb::Table::ExecuteQueryResult& rawData) {
     Y_ABORT_UNLESS(rawData.result_sets().size() == 1);
     ParseSnapshotObjects<TResourcePoolClassifierConfig>(rawData.result_sets()[0], [this](TResourcePoolClassifierConfig&& config) {
+        const auto settings = config.GetClassifierSettings();
+        if (settings.HasAppName) {
+            config.SetCompiledHasAppName(CompilePredicateRegex(*settings.HasAppName));
+        }
         auto& info = ResourcePoolClassifierConfigs[config.GetDatabase()];
         info.ByName.emplace(config.GetName(), config);
         info.ByRank.emplace(config.GetRank(), config);

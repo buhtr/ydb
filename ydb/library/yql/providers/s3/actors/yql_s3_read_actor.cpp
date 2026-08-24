@@ -671,12 +671,14 @@ public:
         auto& cache = GetOrCreate(range);
 
         CpuTime += GetCpuTimeDelta();
+        StopUnit();
 
         while (!cache.Ready) {
             auto ev = WaitForSpecificEvent<TEvS3Provider::TEvReadResult2>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
             HandleEvent(*ev);
         }
 
+        StartUnit();
         StartCycleCount = GetCycleCountFast();
 
         TString data = cache.Data;

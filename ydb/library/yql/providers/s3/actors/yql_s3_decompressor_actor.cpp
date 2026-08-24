@@ -77,13 +77,16 @@ private:
     }
 
     void StartUnit() {
-        if (!Work || Admitted) {
+        if (!Work || Admitted || InputFinished) {
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
                 [this](TAutoPtr<::NActors::IEventHandle> ev) { StateFunc(ev); },
                 TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
+            if (InputFinished) {
+                return;
+            }
         }
         Admitted = true;
     }

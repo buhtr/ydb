@@ -36,6 +36,7 @@ private:
     STFUNC(StateFunc) {
         switch (ev->GetTypeRewrite()) {
             hFunc(NActors::TEvents::TEvWakeup, Handle);
+            sFunc(NActors::TEvents::TEvPoison, PassAway);
         }
     }
 

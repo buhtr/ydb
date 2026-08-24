@@ -8,7 +8,9 @@ namespace NKikimr::NKqp::NScheduler {
 TDqSchedulerContext::TDqSchedulerContext(NHdrf::NDynamic::TQueryPtr query, bool isSchedulable)
     : Query(std::move(query))
     , IsSchedulable(isSchedulable)
-{}
+{
+    Y_ENSURE(!IsSchedulable || Query);
+}
 
 std::unique_ptr<NYql::NDq::IDqSchedulableWork> TDqSchedulerContext::CreateSchedulableWork() {
     if (!Query) {

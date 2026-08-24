@@ -59,6 +59,10 @@ struct IDqSchedulerContext {
     // Each caller must own its own IDqSchedulableWork instance — Start/Stop
     // state is not thread-safe and not shareable across actors.
     virtual std::unique_ptr<IDqSchedulableWork> CreateSchedulableWork() = 0;
+
+    // Pool identity without creating a Work object. Use when a caller only
+    // needs the (database, pool) tag (e.g. for HTTP request routing).
+    virtual TPoolKey GetPoolKey() const = 0;
 };
 
 using IDqSchedulerContextPtr = std::shared_ptr<IDqSchedulerContext>;

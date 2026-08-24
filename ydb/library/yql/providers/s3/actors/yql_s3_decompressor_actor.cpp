@@ -77,18 +77,24 @@ private:
     }
 
     void StartUnit() {
-        while (Work && !Work->StartExecution(TMonotonic::Now())) {
+        if (!Work || Admitted) {
+            return;
+        }
+        while (!Work->StartExecution(TMonotonic::Now())) {
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
                 [this](TAutoPtr<::NActors::IEventHandle> ev) { StateFunc(ev); },
                 TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
+        Admitted = true;
     }
 
     void StopUnit() {
-        if (Work) {
-            bool forced = false;
-            Work->StopExecution(forced);
+        if (!Work || !Admitted) {
+            return;
         }
+        bool forced = false;
+        Work->StopExecution(forced);
+        Admitted = false;
     }
 
     void Run() final {
@@ -154,6 +160,7 @@ private:
     std::queue<THolder<TEvS3Provider::TEvDecompressDataRequest>> Requests;
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
+    bool Admitted = false;
 };
 
 class TS3DecompressorCoroActor : public TActorCoro {

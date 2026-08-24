@@ -418,16 +418,22 @@ public:
     };
 
     void StartUnit() {
-        while (Work && !Work->StartExecution(TMonotonic::Now())) {
+        if (!Work || Admitted) {
+            return;
+        }
+        while (!Work->StartExecution(TMonotonic::Now())) {
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(&TS3ReadCoroImpl::ProcessUnexpectedEvent, TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
+        Admitted = true;
     }
 
     void StopUnit() {
-        if (Work) {
-            bool forced = false;
-            Work->StopExecution(forced);
+        if (!Work || !Admitted) {
+            return;
         }
+        bool forced = false;
+        Work->StopExecution(forced);
+        Admitted = false;
     }
 
     void RunClickHouseParserOverHttp() {
@@ -954,10 +960,15 @@ public:
             }
         }
 
-        StopUnit();
+        const bool wasAdmitted = Admitted;
+        if (wasAdmitted) {
+            StopUnit();
+        }
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
         StateFunc(ev);
-        StartUnit();
+        if (wasAdmitted) {
+            StartUnit();
+        }
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {
@@ -1372,6 +1383,7 @@ private:
     const bool AsyncDecompressing;
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
+    bool Admitted = false;
 };
 
 class TS3ReadCoroActor : public TActorCoro {

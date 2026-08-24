@@ -17,7 +17,6 @@ std::unique_ptr<NYql::NDq::IDqSchedulableWork> TDqSchedulerContext::CreateSchedu
     return std::make_unique<TSchedulableBase>(TSchedulableOptions{
         .Query = Query,
         .IsSchedulable = IsSchedulable,
-        .LazyDemand = true,
     });
 }
 

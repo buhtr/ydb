@@ -959,8 +959,10 @@ public:
             }
         }
 
+        StopUnit();
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
         StateFunc(ev);
+        StartUnit();
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {

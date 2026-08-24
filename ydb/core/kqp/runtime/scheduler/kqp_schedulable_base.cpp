@@ -29,17 +29,15 @@ namespace {
 } // namespace
 
 TSchedulableBase::TSchedulableBase(const TOptions& options)
-    : Query(options.Query)
-    , Key(ExtractKey(Query))
+    : Key(ExtractKey(options.Query))
     , IsSchedulable(options.IsSchedulable)
-    , LazyDemand(options.LazyDemand)
     , LastExecutionTime(AverageExecutionTime)
 {
-    if (Query && !LazyDemand) {
-        SchedulableTask = std::make_shared<TSchedulableTask>(Query);
+    if (options.Query) {
+        SchedulableTask = std::make_shared<TSchedulableTask>(options.Query);
     }
 
-    Y_ENSURE(!IsSchedulable || Query);
+    Y_ENSURE(!IsSchedulable || IsAccountable());
 }
 
 TSchedulableBase::~TSchedulableBase() {
@@ -60,9 +58,6 @@ void TSchedulableBase::RegisterForResume(const NActors::TActorId& actorId) {
 }
 
 bool TSchedulableBase::StartExecution(TMonotonic now) {
-    if (!SchedulableTask && LazyDemand) {
-        SchedulableTask = std::make_shared<TSchedulableTask>(Query);
-    }
     Y_ASSERT(SchedulableTask);
     Y_ASSERT(!Executed);
 
@@ -119,10 +114,6 @@ void TSchedulableBase::StopExecution(bool& forcedResume) {
         // TODO: resume tasks for all queries from parent leaf pool
     } else if (Throttled) {
         Resume();
-    }
-
-    if (LazyDemand) {
-        SchedulableTask.reset();
     }
 }
 

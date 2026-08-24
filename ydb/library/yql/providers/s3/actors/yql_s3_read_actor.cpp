@@ -418,12 +418,7 @@ public:
     };
 
     void StartUnit() {
-        bool registered = false;
         while (Work && !Work->StartExecution(TMonotonic::Now())) {
-            if (!registered) {
-                Work->RegisterForResume(SelfActorId);
-                registered = true;
-            }
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(&TS3ReadCoroImpl::ProcessUnexpectedEvent, TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
     }
@@ -1217,6 +1212,9 @@ private:
 
     void Run() final {
         LOG_CORO_D("Run start: SchedulerContext=" << (SchedulerContext ? "set" : "null") << " Work=" << (Work ? "set" : "null"));
+        if (Work) {
+            Work->RegisterForResume(SelfActorId);
+        }
         if (AsyncDecompressing) {
             DecompressorActorId = Register(CreateS3DecompressorActor(SelfActorId, ReadSpec->Compression, SchedulerContext));
         }

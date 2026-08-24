@@ -77,12 +77,7 @@ private:
     }
 
     void StartUnit() {
-        bool registered = false;
         while (Work && !Work->StartExecution(TMonotonic::Now())) {
-            if (!registered) {
-                Work->RegisterForResume(SelfActorId);
-                registered = true;
-            }
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
                 [this](TAutoPtr<::NActors::IEventHandle> ev) { StateFunc(ev); },
                 TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
@@ -98,6 +93,10 @@ private:
 
     void Run() final {
         StartCycleCount = GetCycleCountFast();
+
+        if (Work) {
+            Work->RegisterForResume(SelfActorId);
+        }
 
         try {
             std::unique_ptr<NDB::ReadBuffer> coroBuffer = std::make_unique<TCoroReadBuffer>(this);

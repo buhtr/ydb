@@ -466,21 +466,25 @@ public:
 
         while (true) {
             StartUnit();
-            Y_DEFER { StopUnit(); };
+
             NDB::Block batch = stream->read();
             if (!batch) {
+                StopUnit();
                 break;
             }
+
             Paused = SourceContext->Add(batch.bytes(), SelfActorId);
             const bool isCancelled = StopIfConsumedEnough(batch.rows());
             Send(ParentActorId, new TEvS3Provider::TEvNextBlock(batch, PathIndex, TakeIngressDelta(), TakeCpuTimeDelta(), ReadSpec->Compression ? TakeIngressDecompressedDelta(buffer->count()) : 0ULL));
             StopUnit();
+
             if (Paused) {
                 CpuTime += GetCpuTimeDelta();
                 auto ev = WaitForSpecificEvent<TEvS3Provider::TEvContinue>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
                 HandleEvent(*ev);
                 StartCycleCount = GetCycleCountFast();
             }
+
             if (isCancelled) {
                 LOG_CORO_D("RunClickHouseParserOverHttp - STOPPED ON SATURATION");
                 break;
@@ -672,18 +676,21 @@ public:
 
         const bool wasAdmitted = Admitted;
         CpuTime += GetCpuTimeDelta();
-        if (wasAdmitted) {
-            StopUnit();
-        }
 
         while (!cache.Ready) {
+            if (wasAdmitted) {
+                StopUnit();
+            }
+
             auto ev = WaitForSpecificEvent<TEvS3Provider::TEvReadResult2>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
+
+            if (wasAdmitted) {
+                StartUnit();
+            }
+
             HandleEvent(*ev);
         }
 
-        if (wasAdmitted) {
-            StartUnit();
-        }
         StartCycleCount = GetCycleCountFast();
 
         TString data = cache.Data;
@@ -971,11 +978,14 @@ public:
         if (wasAdmitted) {
             StopUnit();
         }
+
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
-        StateFunc(ev);
+
         if (wasAdmitted) {
             StartUnit();
         }
+
+        StateFunc(ev);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {

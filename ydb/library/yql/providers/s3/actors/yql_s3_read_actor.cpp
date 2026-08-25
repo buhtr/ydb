@@ -466,9 +466,9 @@ public:
 
         while (true) {
             StartUnit();
+            Y_DEFER { StopUnit(); };
             NDB::Block batch = stream->read();
             if (!batch) {
-                StopUnit();
                 break;
             }
             Paused = SourceContext->Add(batch.bytes(), SelfActorId);
@@ -670,15 +670,20 @@ public:
         TEvS3Provider::TReadRange range { .Offset = position, .Length = nbytes };
         auto& cache = GetOrCreate(range);
 
+        const bool wasAdmitted = Admitted;
         CpuTime += GetCpuTimeDelta();
-        StopUnit();
+        if (wasAdmitted) {
+            StopUnit();
+        }
 
         while (!cache.Ready) {
             auto ev = WaitForSpecificEvent<TEvS3Provider::TEvReadResult2>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
             HandleEvent(*ev);
         }
 
-        StartUnit();
+        if (wasAdmitted) {
+            StartUnit();
+        }
         StartCycleCount = GetCycleCountFast();
 
         TString data = cache.Data;

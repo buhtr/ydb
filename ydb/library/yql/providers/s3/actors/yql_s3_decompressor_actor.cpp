@@ -135,8 +135,15 @@ private:
             Requests.pop();
             return;
         }
+        const bool wasAdmitted = Admitted;
+        if (wasAdmitted) {
+            StopUnit();
+        }
         TAutoPtr<::NActors::IEventHandle> ev(WaitForEvent().Release());
         StateFunc(ev);
+        if (wasAdmitted) {
+            StartUnit();
+        }
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDecompressDataRequest& event) {

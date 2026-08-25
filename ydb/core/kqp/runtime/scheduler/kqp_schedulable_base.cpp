@@ -40,15 +40,6 @@ TSchedulableBase::TSchedulableBase(const TOptions& options)
     Y_ENSURE(!IsSchedulable || IsAccountable());
 }
 
-TSchedulableBase::~TSchedulableBase() {
-    // Safety net: release scheduler state if owner died between StartExecution
-    // and StopExecution. Idempotent — no-op if Executed=false and !Throttled.
-    if (SchedulableTask) {
-        bool forced = false;
-        StopExecution(forced);
-    }
-}
-
 void TSchedulableBase::RegisterForResume(const NActors::TActorId& actorId) {
     Y_ASSERT(SchedulableTask);
 

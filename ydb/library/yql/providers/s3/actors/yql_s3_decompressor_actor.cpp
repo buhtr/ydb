@@ -1,4 +1,3 @@
-#include <deque>
 #include <queue>
 
 #include <ydb/library/actors/core/actor.h>
@@ -77,49 +76,40 @@ private:
         InputFinished = true;
     }
 
-    void StartUnit(TAutoPtr<NActors::IEventHandle> capturedEv = TAutoPtr<NActors::IEventHandle>()) {
-        if (capturedEv) {
-            PendingDuringStart.push_back(std::move(capturedEv));
-        }
-        if (!Work || Admitted) {
-            ProcessPendingEvents();
+    void StartUnit() {
+        if (!Work || Working) {
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
-                [this](TAutoPtr<NActors::IEventHandle> ev) {
-                    PendingDuringStart.push_back(std::move(ev));
-                },
+                &TS3DecompressorCoroImpl::ProcessUnexpectedEvent,
                 TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
-        Admitted = true;
-        ProcessPendingEvents();
+        Working = true;
+    }
+
+    void ProcessUnexpectedEvent(TAutoPtr<::NActors::IEventHandle> ev) {
+        StateFunc(ev);
     }
 
     void StopUnit() {
-        if (!Work || !Admitted) {
+        if (!Work || !Working) {
             return;
         }
         bool forced = false;
         Work->StopExecution(forced);
-        Admitted = false;
+        Working = false;
     }
 
-    void ProcessPendingEvents() {
-        if (PendingDuringStart.empty()) {
+    void SetUpstreamPause(bool paused) {
+        if (UpstreamPaused == paused) {
             return;
         }
-        auto events = std::move(PendingDuringStart);
-        Y_DEFER {
-            while (!events.empty()) {
-                PendingDuringStart.push_front(std::move(events.back()));
-                events.pop_back();
-            }
-        };
-        while (!events.empty()) {
-            TAutoPtr<NActors::IEventHandle> ev(events.front().Release());
-            events.pop_front();
-            StateFunc(ev);
+        UpstreamPaused = paused;
+        if (UpstreamPaused) {
+            StopUnit();
+        } else {
+            StartUnit();
         }
     }
 
@@ -158,18 +148,12 @@ private:
             Requests.pop();
             return;
         }
-        const bool wasAdmitted = Admitted;
-        if (wasAdmitted) {
-            StopUnit();
-        }
+
+        SetUpstreamPause(true);
+        Y_DEFER { SetUpstreamPause(false); };
 
         TAutoPtr<::NActors::IEventHandle> ev(WaitForEvent().Release());
-
-        if (wasAdmitted) {
-            StartUnit(std::move(ev));
-        } else {
-            StateFunc(ev);
-        }
+        StateFunc(ev);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDecompressDataRequest& event) {
@@ -196,8 +180,8 @@ private:
     std::queue<THolder<TEvS3Provider::TEvDecompressDataRequest>> Requests;
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
-    bool Admitted = false;
-    std::deque<TAutoPtr<NActors::IEventHandle>> PendingDuringStart;
+    bool Working = false;            // holds HDRF slot — allowed to consume CPU
+    bool UpstreamPaused = false;     // waiting on decompress input / HDRF admission — stop consuming
 };
 
 class TS3DecompressorCoroActor : public TActorCoro {

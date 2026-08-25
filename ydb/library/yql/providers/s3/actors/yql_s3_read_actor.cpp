@@ -54,7 +54,6 @@
 #include <util/system/fstat.h>
 
 #include <algorithm>
-#include <deque>
 #include <queue>
 
 #undef THROW
@@ -418,50 +417,50 @@ public:
         TString RawDataBuffer;
     };
 
-    void StartUnit(TAutoPtr<NActors::IEventHandle> capturedEv = TAutoPtr<NActors::IEventHandle>()) {
-        if (capturedEv) {
-            PendingDuringStart.push_back(std::move(capturedEv));
-        }
-        if (!Work || Admitted) {
-            ProcessPendingEvents();
+    void StartUnit() {
+        if (!Work || Working) {
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
-            (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
-                [this](TAutoPtr<NActors::IEventHandle> ev) {
-                    PendingDuringStart.push_back(std::move(ev));
-                },
-                TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
+            (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(&TS3ReadCoroImpl::ProcessUnexpectedEvent, TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
-        Admitted = true;
-        ProcessPendingEvents();
+        Working = true;
     }
 
     void StopUnit() {
-        if (!Work || !Admitted) {
+        if (!Work || !Working) {
             return;
         }
         bool forced = false;
         Work->StopExecution(forced);
-        Admitted = false;
+        Working = false;
     }
 
-    void ProcessPendingEvents() {
-        if (PendingDuringStart.empty()) {
+    bool IsPaused() const {
+        return DownstreamPaused || UpstreamPaused;
+    }
+
+    void SetDownstreamPause(bool paused) {
+        if (DownstreamPaused == paused) {
             return;
         }
-        auto events = std::move(PendingDuringStart);
-        Y_DEFER {
-            // Preserve any unprocessed events (StateFunc may throw)
-            while (!events.empty()) {
-                PendingDuringStart.push_front(std::move(events.back()));
-                events.pop_back();
-            }
-        };
-        while (!events.empty()) {
-            TAutoPtr<NActors::IEventHandle> ev(events.front().Release());
-            events.pop_front();
-            StateFunc(ev);
+        DownstreamPaused = paused;
+        ReconcileWorking();
+    }
+
+    void SetUpstreamPause(bool paused) {
+        if (UpstreamPaused == paused) {
+            return;
+        }
+        UpstreamPaused = paused;
+        ReconcileWorking();
+    }
+
+    void ReconcileWorking() {
+        if (IsPaused()) {
+            StopUnit();
+        } else {
+            StartUnit();
         }
     }
 
@@ -502,12 +501,14 @@ public:
                 break;
             }
 
-            Paused = SourceContext->Add(batch.bytes(), SelfActorId);
+            if (SourceContext->Add(batch.bytes(), SelfActorId)) {
+                SetDownstreamPause(true);
+            }
             const bool isCancelled = StopIfConsumedEnough(batch.rows());
             Send(ParentActorId, new TEvS3Provider::TEvNextBlock(batch, PathIndex, TakeIngressDelta(), TakeCpuTimeDelta(), ReadSpec->Compression ? TakeIngressDecompressedDelta(buffer->count()) : 0ULL));
             StopUnit();
 
-            if (Paused) {
+            if (IsPaused()) {
                 CpuTime += GetCpuTimeDelta();
                 auto ev = WaitForSpecificEvent<TEvS3Provider::TEvContinue>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
                 HandleEvent(*ev);
@@ -547,10 +548,12 @@ public:
         );
 
         while (NDB::Block batch = stream->read()) {
-            Paused = SourceContext->Add(batch.bytes(), SelfActorId);
+            if (SourceContext->Add(batch.bytes(), SelfActorId)) {
+                SetDownstreamPause(true);
+            }
             const bool isCancelled = StopIfConsumedEnough(batch.rows());
             Send(ParentActorId, new TEvS3Provider::TEvNextBlock(batch, PathIndex, TakeIngressDelta(), TakeCpuTimeDelta(), ReadSpec->Compression ? TakeIngressDecompressedDelta(buffer->count()) : 0ULL));
-            if (Paused) {
+            if (IsPaused()) {
                 CpuTime += GetCpuTimeDelta();
                 auto ev = WaitForSpecificEvent<TEvS3Provider::TEvContinue>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
                 HandleEvent(*ev);
@@ -703,20 +706,13 @@ public:
         TEvS3Provider::TReadRange range { .Offset = position, .Length = nbytes };
         auto& cache = GetOrCreate(range);
 
-        const bool wasAdmitted = Admitted;
         CpuTime += GetCpuTimeDelta();
 
+        SetUpstreamPause(true);
+        Y_DEFER { SetUpstreamPause(false); };
+
         while (!cache.Ready) {
-            if (wasAdmitted) {
-                StopUnit();
-            }
-
             auto ev = WaitForSpecificEvent<TEvS3Provider::TEvReadResult2>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
-
-            if (wasAdmitted) {
-                StartUnit();
-            }
-
             HandleEvent(*ev);
         }
 
@@ -813,7 +809,7 @@ public:
             ui64 readyGroupCount = 0;
 
             while (readyGroupCount < numGroups) {
-                if (Paused) {
+                if (IsPaused()) {
                     CpuTime += GetCpuTimeDelta();
                     auto ev = WaitForSpecificEvent<TEvS3Provider::TEvContinue>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
                     HandleEvent(*ev);
@@ -869,7 +865,9 @@ public:
                     auto convertedBatch = ConvertArrowColumns(batch, columnConverters);
                     auto size = NUdf::GetSizeOfArrowBatchInBytes(*convertedBatch);
                     decodedBytes += size;
-                    Paused = SourceContext->Add(size, SelfActorId, Paused);
+                    if (SourceContext->Add(size, SelfActorId, DownstreamPaused)) {
+                        SetDownstreamPause(true);
+                    }
                     Send(ParentActorId, new TEvS3Provider::TEvNextRecordBatch(
                         convertedBatch, PathIndex, TakeIngressDelta(), TakeCpuTimeDelta()
                     ));
@@ -932,7 +930,7 @@ public:
 
         for (int group = 0; group < fileReader->num_row_groups(); group++) {
 
-            if (Paused) {
+            if (IsPaused()) {
                 CpuTime += GetCpuTimeDelta();
                 LOG_CORO_D("RunCoroBlockArrowParserOverFile - PAUSED " << SourceContext->GetValue());
                 auto ev = WaitForSpecificEvent<TEvS3Provider::TEvContinue>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
@@ -956,7 +954,9 @@ public:
                 auto convertedBatch = ConvertArrowColumns(batch, columnConverters);
                 auto size = NUdf::GetSizeOfArrowBatchInBytes(*convertedBatch);
                 decodedBytes += size;
-                Paused = SourceContext->Add(size, SelfActorId, Paused);
+                if (SourceContext->Add(size, SelfActorId, DownstreamPaused)) {
+                    SetDownstreamPause(true);
+                }
                 Send(ParentActorId, new TEvS3Provider::TEvNextRecordBatch(
                     convertedBatch, PathIndex, TakeIngressDelta(), TakeCpuTimeDelta()
                 ));
@@ -988,7 +988,7 @@ public:
     )
 
     void ProcessOneEvent() {
-        if (!Paused) {
+        if (!IsPaused()) {
             if (!DeferredDecompressedDataParts.empty()) {
                 return;
             }
@@ -1003,18 +1003,11 @@ public:
             }
         }
 
-        const bool wasAdmitted = Admitted;
-        if (wasAdmitted) {
-            StopUnit();
-        }
+        SetUpstreamPause(true);
+        Y_DEFER { SetUpstreamPause(false); };
 
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
-
-        if (wasAdmitted) {
-            StartUnit(std::move(ev));
-        } else {
-            StateFunc(ev);
-        }
+        StateFunc(ev);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {
@@ -1051,7 +1044,7 @@ public:
             HttpDataRps->Inc();
         }
         if (200L == HttpResponseCode || 206L == HttpResponseCode) {
-            if (Paused || !DeferredDataParts.empty() || !InputBuffer.empty()) {
+            if (IsPaused() || !DeferredDataParts.empty() || !InputBuffer.empty()) {
                 DeferredDataParts.push(std::move(ev->Release()));
                 if (DeferredQueueSize) {
                     DeferredQueueSize->Inc();
@@ -1156,7 +1149,7 @@ public:
 
     void HandleEvent(TEvS3Provider::TEvContinue::THandle&) {
         LOG_CORO_D("TEvContinue");
-        Paused = false;
+        SetDownstreamPause(false);
     }
 
     void Handle(TEvS3Provider::TEvContinue::TPtr& ev) {
@@ -1418,7 +1411,8 @@ private:
     ui64 StartCycleCount = 0;
     TString InputBuffer;
     std::optional<ui64> RowsRemained;
-    bool Paused = false;
+    bool DownstreamPaused = false;   // CA input queue full — stop producing
+    bool UpstreamPaused = false;     // waiting on HTTP data / HDRF admission — stop consuming
     std::queue<THolder<TEvS3Provider::TEvDownloadData>> DeferredDataParts;
     std::queue<THolder<TEvS3Provider::TEvDecompressDataResult>> DeferredDecompressedDataParts;
     TSourceContext::TPtr SourceContext;
@@ -1429,8 +1423,7 @@ private:
     const bool AsyncDecompressing;
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
-    bool Admitted = false;
-    std::deque<TAutoPtr<NActors::IEventHandle>> PendingDuringStart;
+    bool Working = false;            // holds HDRF slot — allowed to consume CPU
 };
 
 class TS3ReadCoroActor : public TActorCoro {

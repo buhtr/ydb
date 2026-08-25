@@ -63,7 +63,15 @@ private:
     STRICT_STFUNC(StateFunc,
         hFunc(TEvS3Provider::TEvDecompressDataRequest, Handle);
         hFunc(NActors::TEvents::TEvPoison, Handle);
+        sFunc(NActors::TEvents::TEvWakeup, HandleWakeup);
     )
+
+    // CPU scheduler (TQuery::ResumeTasks) may send multiple TEvWakeups while we
+    // are throttled — one per peer's StopExecution. StartUnit's WaitForSpecificEvent
+    // consumes only the first; extras leak into the general event flow and reach
+    // StateFunc via WaitForEvent in ProcessOneEvent. Ignore them here; StartUnit
+    // re-checks StartExecution on every wakeup anyway.
+    void HandleWakeup() {}
 
     void Handle(TEvS3Provider::TEvDecompressDataRequest::TPtr& ev) {
         Requests.push(std::move(ev->Release()));

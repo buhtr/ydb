@@ -985,7 +985,15 @@ public:
         hFunc(TEvS3Provider::TEvContinue, Handle);
         hFunc(TEvS3Provider::TEvReadResult2, Handle);
         hFunc(TEvents::TEvPoison, Handle);
+        sFunc(TEvents::TEvWakeup, HandleWakeup);
     )
+
+    // CPU scheduler (TQuery::ResumeTasks) may send multiple TEvWakeups while we
+    // are throttled — one per peer's StopExecution. StartUnit's WaitForSpecificEvent
+    // consumes only the first; extras leak into the general event flow and reach
+    // StateFunc via WaitForEvent in ProcessOneEvent. Ignore them here; StartUnit
+    // re-checks StartExecution on every wakeup anyway.
+    void HandleWakeup() {}
 
     void ProcessOneEvent() {
         if (!IsPaused()) {

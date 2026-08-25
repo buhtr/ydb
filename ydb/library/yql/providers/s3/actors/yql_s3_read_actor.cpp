@@ -724,12 +724,13 @@ public:
         CpuTime += GetCpuTimeDelta();
 
         SetUpstreamPause(true);
-        Y_DEFER { SetUpstreamPause(false); };
 
         while (!cache.Ready) {
             auto ev = WaitForSpecificEvent<TEvS3Provider::TEvReadResult2>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
             HandleEvent(*ev);
         }
+
+        SetUpstreamPause(false);
 
         StartCycleCount = GetCycleCountFast();
 
@@ -1028,11 +1029,12 @@ public:
 
         LOG_CORO_D("ProcessOneEvent SLOW deferred=" << DeferredDataParts.size() << " inputBuf=" << InputBuffer.size() << " InputFinished=" << InputFinished);
         SetUpstreamPause(true);
-        Y_DEFER { SetUpstreamPause(false); };
 
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
         LOG_CORO_D("ProcessOneEvent got ev type=" << ev->GetTypeRewrite());
         StateFunc(ev);
+
+        SetUpstreamPause(false);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {

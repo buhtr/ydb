@@ -77,27 +77,40 @@ private:
     }
 
     void StartUnit() {
-        if (!Work || Admitted || InputFinished) {
+        if (!Work || Working) {
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
-                [this](TAutoPtr<::NActors::IEventHandle> ev) { StateFunc(ev); },
+                &TS3DecompressorCoroImpl::ProcessUnexpectedEvent,
                 TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
-            if (InputFinished) {
-                return;
-            }
         }
-        Admitted = true;
+        Working = true;
+    }
+
+    void ProcessUnexpectedEvent(TAutoPtr<::NActors::IEventHandle> ev) {
+        StateFunc(ev);
     }
 
     void StopUnit() {
-        if (!Work || !Admitted) {
+        if (!Work || !Working) {
             return;
         }
         bool forced = false;
         Work->StopExecution(forced);
-        Admitted = false;
+        Working = false;
+    }
+
+    void SetUpstreamPause(bool paused) {
+        if (UpstreamPaused == paused) {
+            return;
+        }
+        UpstreamPaused = paused;
+        if (UpstreamPaused) {
+            StopUnit();
+        } else {
+            StartUnit();
+        }
     }
 
     void Run() final {
@@ -135,15 +148,12 @@ private:
             Requests.pop();
             return;
         }
-        const bool wasAdmitted = Admitted;
-        if (wasAdmitted) {
-            StopUnit();
-        }
+
+        SetUpstreamPause(true);
+        Y_DEFER { SetUpstreamPause(false); };
+
         TAutoPtr<::NActors::IEventHandle> ev(WaitForEvent().Release());
         StateFunc(ev);
-        if (wasAdmitted) {
-            StartUnit();
-        }
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDecompressDataRequest& event) {
@@ -170,7 +180,8 @@ private:
     std::queue<THolder<TEvS3Provider::TEvDecompressDataRequest>> Requests;
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
-    bool Admitted = false;
+    bool Working = false;            // holds HDRF slot — allowed to consume CPU
+    bool UpstreamPaused = false;     // waiting on decompress input / HDRF admission — stop consuming
 };
 
 class TS3DecompressorCoroActor : public TActorCoro {

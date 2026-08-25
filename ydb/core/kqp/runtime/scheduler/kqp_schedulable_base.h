@@ -22,7 +22,6 @@ public:
     };
 
     explicit TSchedulableBase(const TOptions& options);
-    ~TSchedulableBase() override;
 
 protected:
     // Public via IDqSchedulableWork vtable, protected for direct-inheritance users

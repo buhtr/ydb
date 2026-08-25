@@ -1,3 +1,4 @@
+#include <deque>
 #include <queue>
 
 #include <ydb/library/actors/core/actor.h>
@@ -76,19 +77,23 @@ private:
         InputFinished = true;
     }
 
-    void StartUnit() {
-        if (!Work || Admitted || InputFinished) {
+    void StartUnit(TAutoPtr<NActors::IEventHandle> capturedEv = TAutoPtr<NActors::IEventHandle>()) {
+        if (capturedEv) {
+            PendingDuringStart.push_back(std::move(capturedEv));
+        }
+        if (!Work || Admitted) {
+            ProcessPendingEvents();
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
-                [this](TAutoPtr<::NActors::IEventHandle> ev) { StateFunc(ev); },
+                [this](TAutoPtr<NActors::IEventHandle> ev) {
+                    PendingDuringStart.push_back(std::move(ev));
+                },
                 TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
-            if (InputFinished) {
-                return;
-            }
         }
         Admitted = true;
+        ProcessPendingEvents();
     }
 
     void StopUnit() {
@@ -98,6 +103,24 @@ private:
         bool forced = false;
         Work->StopExecution(forced);
         Admitted = false;
+    }
+
+    void ProcessPendingEvents() {
+        if (PendingDuringStart.empty()) {
+            return;
+        }
+        auto events = std::move(PendingDuringStart);
+        Y_DEFER {
+            while (!events.empty()) {
+                PendingDuringStart.push_front(std::move(events.back()));
+                events.pop_back();
+            }
+        };
+        while (!events.empty()) {
+            TAutoPtr<NActors::IEventHandle> ev(events.front().Release());
+            events.pop_front();
+            StateFunc(ev);
+        }
     }
 
     void Run() final {
@@ -139,10 +162,13 @@ private:
         if (wasAdmitted) {
             StopUnit();
         }
+
         TAutoPtr<::NActors::IEventHandle> ev(WaitForEvent().Release());
-        StateFunc(ev);
+
         if (wasAdmitted) {
-            StartUnit();
+            StartUnit(std::move(ev));
+        } else {
+            StateFunc(ev);
         }
     }
 
@@ -171,6 +197,7 @@ private:
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
     bool Admitted = false;
+    std::deque<TAutoPtr<NActors::IEventHandle>> PendingDuringStart;
 };
 
 class TS3DecompressorCoroActor : public TActorCoro {

@@ -54,6 +54,7 @@
 #include <util/system/fstat.h>
 
 #include <algorithm>
+#include <deque>
 #include <queue>
 
 #undef THROW
@@ -417,14 +418,23 @@ public:
         TString RawDataBuffer;
     };
 
-    void StartUnit() {
+    void StartUnit(TAutoPtr<NActors::IEventHandle> capturedEv = TAutoPtr<NActors::IEventHandle>()) {
+        if (capturedEv) {
+            PendingDuringStart.push_back(std::move(capturedEv));
+        }
         if (!Work || Admitted) {
+            ProcessPendingEvents();
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
-            (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(&TS3ReadCoroImpl::ProcessUnexpectedEvent, TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
+            (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(
+                [this](TAutoPtr<NActors::IEventHandle> ev) {
+                    PendingDuringStart.push_back(std::move(ev));
+                },
+                TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
         Admitted = true;
+        ProcessPendingEvents();
     }
 
     void StopUnit() {
@@ -434,6 +444,25 @@ public:
         bool forced = false;
         Work->StopExecution(forced);
         Admitted = false;
+    }
+
+    void ProcessPendingEvents() {
+        if (PendingDuringStart.empty()) {
+            return;
+        }
+        auto events = std::move(PendingDuringStart);
+        Y_DEFER {
+            // Preserve any unprocessed events (StateFunc may throw)
+            while (!events.empty()) {
+                PendingDuringStart.push_front(std::move(events.back()));
+                events.pop_back();
+            }
+        };
+        while (!events.empty()) {
+            TAutoPtr<NActors::IEventHandle> ev(events.front().Release());
+            events.pop_front();
+            StateFunc(ev);
+        }
     }
 
     void RunClickHouseParserOverHttp() {
@@ -982,10 +1011,10 @@ public:
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
 
         if (wasAdmitted) {
-            StartUnit();
+            StartUnit(std::move(ev));
+        } else {
+            StateFunc(ev);
         }
-
-        StateFunc(ev);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {
@@ -1401,6 +1430,7 @@ private:
     const IDqSchedulerContextPtr SchedulerContext;
     std::unique_ptr<IDqSchedulableWork> Work;
     bool Admitted = false;
+    std::deque<TAutoPtr<NActors::IEventHandle>> PendingDuringStart;
 };
 
 class TS3ReadCoroActor : public TActorCoro {

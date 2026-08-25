@@ -370,14 +370,14 @@ public:
                     Coro->InputBuffer.clear();
                     auto rawData = const_cast<char*>(RawDataBuffer.data());
                     working_buffer = NDB::BufferBase::Buffer(rawData, rawData + RawDataBuffer.size());
-                    LOG_CORO_D("TCoroReadBuffer::nextImpl SWAP size=" << RawDataBuffer.size());
+                    Coro->LogNextImplSwap(RawDataBuffer.size());
                     return true;
                 }
                 Coro->CpuTime += Coro->GetCpuTimeDelta();
                 Coro->ProcessOneEvent();
                 Coro->StartCycleCount = GetCycleCountFast();
             }
-            LOG_CORO_D("TCoroReadBuffer::nextImpl EOF InputFinished=" << Coro->InputFinished << " deferred=" << Coro->DeferredDataParts.size());
+            Coro->LogNextImplEof();
             return false;
         }
 
@@ -469,6 +469,14 @@ public:
         } else {
             StartUnit();
         }
+    }
+
+    void LogNextImplSwap(size_t size) {
+        LOG_CORO_D("TCoroReadBuffer::nextImpl SWAP size=" << size);
+    }
+
+    void LogNextImplEof() {
+        LOG_CORO_D("TCoroReadBuffer::nextImpl EOF InputFinished=" << InputFinished << " deferred=" << DeferredDataParts.size());
     }
 
     void RunClickHouseParserOverHttp() {

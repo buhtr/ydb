@@ -158,10 +158,11 @@ private:
         }
 
         SetUpstreamPause(true);
-        Y_DEFER { SetUpstreamPause(false); };
 
         TAutoPtr<::NActors::IEventHandle> ev(WaitForEvent().Release());
         StateFunc(ev);
+
+        SetUpstreamPause(false);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDecompressDataRequest& event) {

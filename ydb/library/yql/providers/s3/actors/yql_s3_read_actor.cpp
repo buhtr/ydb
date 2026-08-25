@@ -709,12 +709,13 @@ public:
         CpuTime += GetCpuTimeDelta();
 
         SetUpstreamPause(true);
-        Y_DEFER { SetUpstreamPause(false); };
 
         while (!cache.Ready) {
             auto ev = WaitForSpecificEvent<TEvS3Provider::TEvReadResult2>(&TS3ReadCoroImpl::ProcessUnexpectedEvent);
             HandleEvent(*ev);
         }
+
+        SetUpstreamPause(false);
 
         StartCycleCount = GetCycleCountFast();
 
@@ -1012,10 +1013,11 @@ public:
         }
 
         SetUpstreamPause(true);
-        Y_DEFER { SetUpstreamPause(false); };
 
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
         StateFunc(ev);
+
+        SetUpstreamPause(false);
     }
 
     void ExtractDataPart(TEvS3Provider::TEvDownloadData& event, bool deferred = false) {

@@ -370,12 +370,14 @@ public:
                     Coro->InputBuffer.clear();
                     auto rawData = const_cast<char*>(RawDataBuffer.data());
                     working_buffer = NDB::BufferBase::Buffer(rawData, rawData + RawDataBuffer.size());
+                    LOG_CORO_D("TCoroReadBuffer::nextImpl SWAP size=" << RawDataBuffer.size());
                     return true;
                 }
                 Coro->CpuTime += Coro->GetCpuTimeDelta();
                 Coro->ProcessOneEvent();
                 Coro->StartCycleCount = GetCycleCountFast();
             }
+            LOG_CORO_D("TCoroReadBuffer::nextImpl EOF InputFinished=" << Coro->InputFinished << " deferred=" << Coro->DeferredDataParts.size());
             return false;
         }
 
@@ -422,9 +424,11 @@ public:
             return;
         }
         while (!Work->StartExecution(TMonotonic::Now())) {
+            LOG_CORO_D("StartUnit RETRY (throttled)");
             (void)WaitForSpecificEvent<NActors::TEvents::TEvWakeup>(&TS3ReadCoroImpl::ProcessUnexpectedEvent, TMonotonic::Now() + Work->CalculateDelay(TMonotonic::Now()));
         }
         Working = true;
+        LOG_CORO_D("StartUnit -> Working=true");
     }
 
     void StopUnit() {
@@ -434,6 +438,7 @@ public:
         bool forced = false;
         Work->StopExecution(forced);
         Working = false;
+        LOG_CORO_D("StopUnit -> Working=false");
     }
 
     bool IsPaused() const {
@@ -444,6 +449,7 @@ public:
         if (DownstreamPaused == paused) {
             return;
         }
+        LOG_CORO_D("SetDownstreamPause " << DownstreamPaused << " -> " << paused);
         DownstreamPaused = paused;
         ReconcileWorking();
     }
@@ -452,6 +458,7 @@ public:
         if (UpstreamPaused == paused) {
             return;
         }
+        LOG_CORO_D("SetUpstreamPause " << UpstreamPaused << " -> " << paused);
         UpstreamPaused = paused;
         ReconcileWorking();
     }
@@ -1003,10 +1010,12 @@ public:
             }
         }
 
+        LOG_CORO_D("ProcessOneEvent SLOW deferred=" << DeferredDataParts.size() << " inputBuf=" << InputBuffer.size() << " InputFinished=" << InputFinished);
         SetUpstreamPause(true);
         Y_DEFER { SetUpstreamPause(false); };
 
         TAutoPtr<IEventHandle> ev(WaitForEvent().Release());
+        LOG_CORO_D("ProcessOneEvent got ev type=" << ev->GetTypeRewrite());
         StateFunc(ev);
     }
 
@@ -1017,7 +1026,7 @@ public:
         RetryStuff->SizeLimit -= InputBuffer.size();
         LastOffset = RetryStuff->Offset;
         LastData = InputBuffer;
-        LOG_CORO_T("TEvDownloadData (" << (deferred ? "deferred" : "instant") << "), size: " << InputBuffer.size());
+        LOG_CORO_D("ExtractDataPart " << (deferred ? "DEFERRED" : "INSTANT") << " size=" << InputBuffer.size() << " newOffset=" << RetryStuff->Offset);
         Send(ComputeActorId, new IDqComputeActorAsyncInput::TEvNewAsyncInputDataArrived(InputIndex));
     }
 
@@ -1045,6 +1054,7 @@ public:
         }
         if (200L == HttpResponseCode || 206L == HttpResponseCode) {
             if (IsPaused() || !DeferredDataParts.empty() || !InputBuffer.empty()) {
+                LOG_CORO_D("Handle(TEvDownloadData) DEFER size=" << ev->Get()->Result.size() << " IsPaused=" << IsPaused() << " deferred=" << DeferredDataParts.size() << " inputBuf=" << InputBuffer.size());
                 DeferredDataParts.push(std::move(ev->Release()));
                 if (DeferredQueueSize) {
                     DeferredQueueSize->Inc();
@@ -1076,6 +1086,7 @@ public:
     }
 
     void Handle(TEvS3Provider::TEvDownloadFinish::TPtr& ev) {
+        LOG_CORO_D("Handle(TEvDownloadFinish) enter deferred=" << DeferredDataParts.size() << " inputBuf=" << InputBuffer.size() << " Offset=" << RetryStuff->Offset);
         if (CurlResponseCode == CURLE_OK) {
             CurlResponseCode = ev->Get()->CurlResponseCode;
         }
@@ -1117,6 +1128,7 @@ public:
         }
 
         if (!RetryStuff->IsCancelled() && RetryStuff->NextRetryDelay && RetryStuff->SizeLimit > 0ULL) {
+            LOG_CORO_D("Handle(TEvDownloadFinish) RETRY delay=" << RetryStuff->NextRetryDelay->MilliSeconds() << " clearInputBuf=" << InputBuffer.size() << " clearDeferred=" << DeferredDataParts.size());
             IHttpRequestContext::TPtr retryContext;
             if (Work) {
                 retryContext = MakeIntrusive<TDefaultHttpRequestContext>(Work->GetPoolKey());

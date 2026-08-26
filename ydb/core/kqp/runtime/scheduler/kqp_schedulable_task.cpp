@@ -1,5 +1,7 @@
 #include "kqp_schedulable_task.h"
 
+#include "log.h"
+
 #include <ydb/core/kqp/runtime/scheduler/tree/dynamic.h>
 
 namespace NKikimr::NKqp::NScheduler {
@@ -31,8 +33,10 @@ bool TSchedulableTask::TryIncreaseUsage() {
     bool increased = false;
     ui64 fairShare = 0;
     NHdrf::NDynamic::TTreeElement* poolOrQuery = nullptr;
+    bool hasSnapshot = false;
 
     if (const auto snapshot = Query->GetSnapshot()) {
+        hasSnapshot = true;
         fairShare = snapshot->FairShare;
         poolOrQuery = Query->GetParent();
 
@@ -48,11 +52,17 @@ bool TSchedulableTask::TryIncreaseUsage() {
         poolOrQuery = Query.get();
     }
 
-    ui64 newUsage = poolOrQuery->CpuUsage.load();
+    ui64 usageBefore = poolOrQuery->CpuUsage.load();
+    ui64 newUsage = usageBefore;
 
     while (!increased && newUsage < fairShare) {
         increased = poolOrQuery->CpuUsage.compare_exchange_weak(newUsage, newUsage + 1);
     }
+
+    LOG_D("TryIncrUsage hasSnap=" << hasSnapshot
+        << " usageBefore=" << usageBefore
+        << " fairShare=" << fairShare
+        << " decision=" << (increased ? "accept" : "reject"));
 
     if (!increased) {
         return false;

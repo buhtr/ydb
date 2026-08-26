@@ -1,6 +1,7 @@
 #include "kqp_schedulable_base.h"
 
 #include "kqp_schedulable_task.h"
+#include "log.h"
 
 #include <ydb/core/kqp/runtime/scheduler/tree/dynamic.h>
 
@@ -78,6 +79,12 @@ bool TSchedulableBase::StartExecution(TMonotonic now) {
     if (IsSchedulable) {
         // TODO: check heuristics if we should execute this task.
         Executed = SchedulableTask->TryIncreaseUsage();
+        LOG_D("StartExec pool=" << Key.PoolId
+            << " ok=" << Executed
+            << " lastExec_us=" << LastExecutionTime.MicroSeconds()
+            << " curTasks_us=" << SchedulableTask->Query->CurrentTasksTime.load()
+            << " waitTasks_us=" << SchedulableTask->Query->WaitingTasksTime.load()
+            << " attempts=" << ExecuteAttempts);
         return Executed;
     }
 
@@ -99,7 +106,13 @@ void TSchedulableBase::StopExecution(bool& forcedResume) {
         forcedResume = false;
         Executed = false;
 
-        if (auto spareUsage = SchedulableTask->GetSpareUsage()) {
+        auto spareUsage = SchedulableTask->GetSpareUsage();
+        LOG_D("StopExec pool=" << Key.PoolId
+            << " timePassed_us=" << timePassed.MicroSeconds()
+            << " newLastExec_us=" << LastExecutionTime.MicroSeconds()
+            << " newCurTasks_us=" << SchedulableTask->Query->CurrentTasksTime.load()
+            << " spareUsage=" << spareUsage);
+        if (spareUsage) {
             SchedulableTask->Query->ResumeTasks(spareUsage);
         }
         // TODO: resume tasks for all queries from parent leaf pool
@@ -131,6 +144,13 @@ TDuration TSchedulableBase::CalculateDelay(TMonotonic) const {
     if (query->Delay) {
         query->Delay->Collect(delayDuration.MicroSeconds());
     }
+    LOG_D("CalcDelay pool=" << Key.PoolId
+        << " curTasks_us=" << query->CurrentTasksTime.load()
+        << " waitTasks_us=" << query->WaitingTasksTime.load()
+        << " fairShare=" << share
+        << " attempts=" << ExecuteAttempts
+        << " rawDelay_us=" << delay
+        << " clampedDelay_us=" << delayDuration.MicroSeconds());
     return delayDuration;
 }
 

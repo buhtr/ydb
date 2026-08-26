@@ -364,7 +364,7 @@ public:
 
     private:
         bool nextImpl() final {
-            while (!Coro->InputFinished || !Coro->DeferredDataParts.empty()) {
+            while (true) {
                 if (Coro->InputBuffer) {
                     RawDataBuffer.swap(Coro->InputBuffer);
                     Coro->InputBuffer.clear();
@@ -372,6 +372,9 @@ public:
                     working_buffer = NDB::BufferBase::Buffer(rawData, rawData + RawDataBuffer.size());
                     Coro->LogNextImplSwap(RawDataBuffer.size());
                     return true;
+                }
+                if (Coro->InputFinished && Coro->DeferredDataParts.empty()) {
+                    break;
                 }
                 Coro->CpuTime += Coro->GetCpuTimeDelta();
                 Coro->ProcessOneEvent();
@@ -394,7 +397,7 @@ public:
 
     private:
         bool nextImpl() final {
-            while (!Coro->DecompressedInputFinished || !Coro->DeferredDecompressedDataParts.empty()) {
+            while (true) {
                 auto decompressed = Coro->ExtractDecompressedDataPart();
                 if (decompressed) {
                     RawDataBuffer.swap(decompressed);
@@ -407,6 +410,9 @@ public:
                     if (Coro->InputFinished && Coro->DeferredDataParts.empty()) {
                         Coro->FinishDecompressor();
                     }
+                }
+                if (Coro->DecompressedInputFinished && Coro->DeferredDecompressedDataParts.empty()) {
+                    break;
                 }
                 Coro->CpuTime += Coro->GetCpuTimeDelta();
                 Coro->ProcessOneEvent();

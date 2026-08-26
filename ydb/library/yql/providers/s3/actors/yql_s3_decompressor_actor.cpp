@@ -41,13 +41,16 @@ private:
 
     private:
         bool nextImpl() final {
-            while (!Coro->InputFinished || !Coro->Requests.empty()) {
+            while (true) {
                 if (Coro->InputBuffer) {
                     RawDataBuffer.swap(Coro->InputBuffer);
                     Coro->InputBuffer.clear();
                     auto rawData = const_cast<char*>(RawDataBuffer.data());
                     working_buffer = NDB::BufferBase::Buffer(rawData, rawData + RawDataBuffer.size());
                     return true;
+                }
+                if (Coro->InputFinished && Coro->Requests.empty()) {
+                    break;
                 }
                 Coro->CpuTime += Coro->GetCpuTimeDelta();
                 Coro->ProcessOneEvent();

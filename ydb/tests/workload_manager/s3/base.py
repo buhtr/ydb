@@ -22,13 +22,13 @@ from ydb.tests.workload_manager.common.workload_manager import (
 # User pool sized so TotalCpuLimit is large enough for meaningful integer
 # cap differentiation. Default KikiMR gives User pool 3 threads, which makes
 # 30/40/50% pool caps all collapse to 1 (via `max(1, pct * total / 100)` with
-# integer division in kqp_compute_scheduler_service.cpp). At 16 threads the
-# same percentages resolve to 4/6/8 CPUs — distinct and non-trivial. Other
-# pools kept at their defaults from resources/default_yaml.yml.
+# integer division in kqp_compute_scheduler_service.cpp). At 10 threads:
+# 10% -> 1 CPU (the Cap10Percent test), 30/40/50% -> 3/4/5 CPUs (P3-style).
+# Other pools kept at their defaults from resources/default_yaml.yml.
 _S3_ACTOR_SYSTEM_CONFIG = {
     "executor": [
         {"type": "BASIC", "name": "System", "threads": 2,  "spin_threshold": 0},
-        {"type": "BASIC", "name": "User",   "threads": 16, "spin_threshold": 0},
+        {"type": "BASIC", "name": "User",   "threads": 10, "spin_threshold": 0},
         {"type": "BASIC", "name": "Batch",  "threads": 2,  "spin_threshold": 0},
         {"type": "IO",    "name": "IO",     "threads": 1,  "time_per_mailbox_micro_secs": 100},
         {"type": "BASIC", "name": "IC",     "threads": 1,  "spin_threshold": 10, "time_per_mailbox_micro_secs": 100},
@@ -94,8 +94,8 @@ class WorkloadManagerS3ComputeScheduler(WorkloadManagerComputeScheduler):
     ydb/core/kqp/runtime/scheduler/tree/dynamic.cpp.
     """
 
-    threads_min: int = 4
-    threads_max: int = 64
+    threads_min: int = 2
+    threads_max: int = 16
     saturation_min_polls: int = 5
     ramp_max_attempts: int = 3
 

@@ -20,14 +20,9 @@ from ydb.tests.workload_manager.common.workload_manager import (
 
 
 class S3WorkloadManagerFunctionalBase(FunctionalTestBase):
-    """Hermetic KiKiMR setup for S3 scheduling tests.
+    """KiKiMR setup for S3 scheduling tests.
 
-    Enables the feature flags, query-service config, and actor-system pool
-    sizing the S3 CPU scheduler needs; then hands off to the WM chain's
-    setup_class (LoadSuiteBase -> perform_verification -> do_setup_class ->
-    benchmark_setup -> pools/EDS).
-
-    MRO note: place this class *first* in the concrete Test class's bases so
+    NOTE: place this class *first* in the concrete Test class's bases so
     its setup_class wins over LoadSuiteBase.setup_class, which sits deeper in
     the WM chain and would otherwise be picked by method resolution.
     """
@@ -42,11 +37,8 @@ class S3WorkloadManagerFunctionalBase(FunctionalTestBase):
             query_service_config={
                 "available_external_data_sources": ["ObjectStorage"],
                 # Per-task S3 read buffer defaults to 200 MiB
-                # (TS3GatewayConfig.DataInflight in
-                # yql/essentials/providers/common/proto/gateways_config.proto).
-                # Under concurrent runners that overshoots the hermetic
-                # KiKiMR's memory quota. Shrink to 16 MiB so decode buffers
-                # fit comfortably.
+                # Under concurrent runners that overshoots the
+                # KiKiMR's memory quota. Use only 16MB
                 "s3": {
                     "data_inflight": 16 * 1024 * 1024,
                 },
@@ -60,24 +52,17 @@ class WorkloadManagerS3ComputeScheduler(WorkloadManagerComputeScheduler):
     Compute-scheduler variant that polls per-pool S3 CPU-scheduling sensors,
     ramps thread count until a capped pool saturates, and asserts the cap
     was not exceeded.
-
-    Assertion pair:
-      * Saturation witness: `Waiting > 0` sustained for at least
-        `saturation_min_polls` consecutive 1s polls in some capped pool
-        during an attempt. Without it, `usage/limit <= 1.0` proves nothing.
-      * Cap effectiveness: p95 of per-poll `Usage/Limit` per capped pool,
-        exposed as `usage_over_limit_p95_<pool>` KeyMeasurement, target <= 1.0.
-
-    Ramp: threads doubles across attempts from `threads_min` up to
-    `threads_max` until saturation is observed.
-
-    Sensor names track `schedulerPool` subgroup in
-    ydb/core/kqp/runtime/scheduler/tree/dynamic.cpp.
     """
 
+    # ramp attempt from min to max
     threads_min: int = 2
     threads_max: int = 16
-    saturation_min_polls: int = 5
+
+    # `Waiting > 0` has to be during at least this
+    # amount of consequtive polls
+    saturation_min_polls: int = 10
+
+    # how much to ramp if test failed
     ramp_max_attempts: int = 3
 
     _saturated: bool = False
@@ -211,10 +196,6 @@ class WorkloadManagerS3ComputeScheduler(WorkloadManagerComputeScheduler):
                         timeout=qparams.timeout,
                         check_canonical=self.check_canonical,
                         query_syntax=self.query_syntax,
-                        # `ydb workload query run` does not accept --scale; only
-                        # tpc[h|ds]/clickbench workloads do. `self.scale` is
-                        # retained on the class for the S3 path template used by
-                        # get_query_list(), but must not reach the CLI.
                         scale=None,
                         query_prefix=qparams.query_prefix,
                         external_path=self.get_external_path(),
@@ -250,38 +231,15 @@ class WorkloadManagerS3ComputeScheduler(WorkloadManagerComputeScheduler):
 
 
 class WorkloadManagerS3TpchBase:
-    """Mixin for perf-lab S3 scheduling tests: TPC-H orders scanned via
-    EXTERNAL DATA SOURCE with inline schema.
-
-    Uses the same public Yandex Cloud bucket that
-    ydb/tests/olap/s3_import/large/test_large_import.py reads from. Only the
-    EXTERNAL DATA SOURCE is created (no EXTERNAL TABLE); every query carries
-    its own SCHEMA/FORMAT/FILE_PATTERN. Mirrors the SQL used in manual load
-    tests: `SELECT SOME(...)` over all columns with `MaxTasksPerStage` cranked
-    up to force per-file parallelism against S3.
-    """
-
     workload_type = WorkloadType.EXTERNAL
     iterations: int = tpch.TpchParallelBase.iterations
 
     @classmethod
     def _get_source_path(cls) -> str:
-        # EDS lives at `<_tables_path>/<get_path()>` (typically
-        # `olap_yatests/tpch_s3/sN`). This is the exact path that
-        # WorkloadRunner.wait_ydb_alive(self.db_path) describes when it
-        # health-checks the workload's `--path` before running (see
-        # ydb/tests/olap/lib/ydb_cli.py:266). By placing the EDS itself at
-        # that path, describe_path returns a scheme entry (not "Path not
-        # found") and the workload proceeds. No child suffix (/src etc.)
-        # because we want the EDS name to *be* that path.
         return YdbCluster.get_tables_path(cls.get_path())
 
     @classmethod
     def _get_scan_query(cls, pragma_prefix: str = '') -> str:
-        # SOME() over every column forces the S3 read actor to actually
-        # decode all columns — unlike COUNT(*), which can be answered from
-        # parquet row-group metadata alone without decoding rows and would
-        # not exercise the CPU throttle path.
         return f'''{pragma_prefix}
             SELECT
                 SOME(o_clerk),
@@ -313,10 +271,6 @@ class WorkloadManagerS3TpchBase:
 
     @classmethod
     def get_query_list(cls) -> list[str]:
-        # No MaxTasksPerStage/OverridePlanner pragmas: those were needed only
-        # for the manual load-test cluster with hundreds of workers. In our
-        # hermetic KiKiMR (16 workers) the planner default is fine and forcing
-        # a higher task count blows past the S3 read-buffer memory budget.
         return [cls._get_scan_query()]
 
     @classmethod
@@ -328,9 +282,6 @@ class WorkloadManagerS3TpchBase:
 
     @classmethod
     def benchmark_setup(cls) -> None:
-        # `enable_s3_scheduling` and `enable_external_data_sources` are turned
-        # on by S3WorkloadManagerFunctionalBase.setup_class before we get here,
-        # so no preflight witness is needed.
         endpoint = get_external_param('s3-endpoint', 'https://storage.yandexcloud.net')
         bucket = get_external_param('s3-bucket', 'tpc')
         sessions_pool = ydb.QuerySessionPool(YdbCluster.get_ydb_driver())

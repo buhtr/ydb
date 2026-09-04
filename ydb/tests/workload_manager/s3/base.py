@@ -273,7 +273,15 @@ class WorkloadManagerS3TpchBase:
 
     @classmethod
     def _get_source_path(cls) -> str:
-        return f'{cls.get_path()}/src'
+        # EDS lives at `<_tables_path>/<get_path()>` (typically
+        # `olap_yatests/tpch_s3/sN`). This is the exact path that
+        # WorkloadRunner.wait_ydb_alive(self.db_path) describes when it
+        # health-checks the workload's `--path` before running (see
+        # ydb/tests/olap/lib/ydb_cli.py:266). By placing the EDS itself at
+        # that path, describe_path returns a scheme entry (not "Path not
+        # found") and the workload proceeds. No child suffix (/src etc.)
+        # because we want the EDS name to *be* that path.
+        return YdbCluster.get_tables_path(cls.get_path())
 
     @classmethod
     def _get_scan_query(cls, pragma_prefix: str = '') -> str:

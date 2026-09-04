@@ -1,7 +1,7 @@
 PY3TEST()
 
 TEST_SRCS(
-    test_resource_pool.py
+    test_compute_scheduler.py
 )
 
 FORK_TESTS()
@@ -28,12 +28,12 @@ PEERDIR(
     ydb/tests/workload_manager/common
 )
 
+PY_SRCS(
+    base.py
+)
+
 DEPENDS(
     ydb/apps/ydb
 )
 
 END()
-
-RECURSE(
-    s3
-)

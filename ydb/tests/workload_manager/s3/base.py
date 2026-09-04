@@ -221,7 +221,11 @@ class WorkloadManagerS3ComputeScheduler(WorkloadManagerComputeScheduler):
                         timeout=qparams.timeout,
                         check_canonical=self.check_canonical,
                         query_syntax=self.query_syntax,
-                        scale=self.scale,
+                        # `ydb workload query run` does not accept --scale; only
+                        # tpc[h|ds]/clickbench workloads do. `self.scale` is
+                        # retained on the class for the S3 path template used by
+                        # get_query_list(), but must not reach the CLI.
+                        scale=None,
                         query_prefix=qparams.query_prefix,
                         external_path=self.get_external_path(),
                         threads=threads,

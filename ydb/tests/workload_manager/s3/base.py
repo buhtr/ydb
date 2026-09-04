@@ -59,6 +59,15 @@ class S3WorkloadManagerFunctionalBase(FunctionalTestBase):
             ],
             query_service_config={
                 "available_external_data_sources": ["ObjectStorage"],
+                # Per-task S3 read buffer defaults to 200 MiB
+                # (TS3GatewayConfig.DataInflight in
+                # yql/essentials/providers/common/proto/gateways_config.proto).
+                # With 16 User workers and multiple concurrent runners that
+                # overshoots the hermetic KiKiMR's memory quota. Shrink to
+                # 16 MiB so decode buffers fit comfortably.
+                "s3": {
+                    "data_inflight": 16 * 1024 * 1024,
+                },
             },
             actor_system_config=_S3_ACTOR_SYSTEM_CONFIG,
         )
@@ -273,7 +282,6 @@ class WorkloadManagerS3TpchBase:
 
     workload_type = WorkloadType.EXTERNAL
     iterations: int = tpch.TpchParallelBase.iterations
-    max_tasks_per_stage: int = 300
 
     @classmethod
     def _get_source_path(cls) -> str:
@@ -324,13 +332,11 @@ class WorkloadManagerS3TpchBase:
 
     @classmethod
     def get_query_list(cls) -> list[str]:
-        pragmas = f'''
-            PRAGMA ydb.MaxTasksPerStage = "{cls.max_tasks_per_stage}";
-            PRAGMA ydb.OverridePlanner = @@ [
-                {{ "tx": 0, "stage": 0, "tasks": {cls.max_tasks_per_stage} }}
-            ] @@;
-        '''
-        return [cls._get_scan_query(pragma_prefix=pragmas)]
+        # No MaxTasksPerStage/OverridePlanner pragmas: those were needed only
+        # for the manual load-test cluster with hundreds of workers. In our
+        # hermetic KiKiMR (16 workers) the planner default is fine and forcing
+        # a higher task count blows past the S3 read-buffer memory budget.
+        return [cls._get_scan_query()]
 
     @classmethod
     def get_path(cls) -> str:

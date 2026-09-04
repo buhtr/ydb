@@ -1,6 +1,6 @@
 from ydb.tests.olap.load.lib import tpch
 from ydb.tests.workload_manager.common.workload_manager import ResourcePool
-from ydb.tests.workload_manager.s3.base import (
+from ydb.tests.workload_manager.s3.lib.base import (
     S3WorkloadManagerFunctionalBase,
     WorkloadManagerS3ComputeScheduler,
     WorkloadManagerS3TpchBase,

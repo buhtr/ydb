@@ -24,12 +24,7 @@ ENV(NO_KUBER_LOGS="yes")
 ENV(WAIT_CLUSTER_ALIVE_TIMEOUT="60")
 
 PEERDIR(
-    ydb/tests/functional/tpc/lib
-    ydb/tests/workload_manager/common
-)
-
-PY_SRCS(
-    base.py
+    ydb/tests/workload_manager/s3/lib
 )
 
 DEPENDS(

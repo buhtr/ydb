@@ -11,6 +11,7 @@
 
 #include <ydb/services/workload_manager/actors/actors.h>
 #include <ydb/services/workload_manager/common/helpers.h>
+#include <ydb/services/workload_manager/gateway/resource_pools_cache_actor.h>
 #include <ydb/services/workload_manager/tables/table_queries.h>
 
 #include <ydb/core/mind/tenant_node_enumeration.h>
@@ -99,6 +100,10 @@ public:
             if (poolState.NewPoolHandler) {
                 Send(*poolState.NewPoolHandler, new TEvents::TEvPoison());
             }
+        }
+
+        if (CacheActor) {
+            Send(CacheActor, new TEvents::TEvPoison());
         }
 
         PassAway();
@@ -537,6 +542,7 @@ private:
         ServiceInitialized = true;
 
         LOG_I("Started workload service initialization");
+        CacheActor = Register(CreateResourcePoolsCacheActor(SelfId()));
         Register(CreateCleanupTablesActor());
         RunNodeInfoRequest();
     }
@@ -660,7 +666,7 @@ private:
         }
 
         LOG_I("Creating new database state for id " << databaseId);
-        return &DatabaseToState.insert({databaseId, TDatabaseState{.SelfId = SelfId(), .EnabledResourcePoolsOnServerless = EnabledResourcePoolsOnServerless, .WorkloadManagerConfig = WorkloadManagerConfig}}).first->second;
+        return &DatabaseToState.insert({databaseId, TDatabaseState{.SelfId = SelfId(), .CacheActor = CacheActor, .EnabledResourcePoolsOnServerless = EnabledResourcePoolsOnServerless, .WorkloadManagerConfig = WorkloadManagerConfig}}).first->second;
     }
 
     TPoolState* GetOrCreatePoolState(const TString& databaseId, const TString& poolId, const NResourcePool::TPoolSettings& poolConfig) {
@@ -713,6 +719,7 @@ private:
     std::unordered_map<TString, TPoolState> PoolIdToState;  // DatabaseID/PoolID to state
     std::unique_ptr<TCpuQuotaManagerState> CpuQuotaManager;
     ui32 NodeCount = 0;
+    TActorId CacheActor;
 };
 
 }  // anonymous namespace

@@ -3,6 +3,7 @@
 #include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/gateway.h>
 #include <ydb/services/workload_manager/gateway/resource_pools_cache_actor.h>
+#include <ydb/services/workload_manager/service/service.h>
 #include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
 
 #include <ydb/core/kqp/common/simple/services.h>
@@ -24,7 +25,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
     Y_UNIT_TEST(RegistersGatewayOnBootstrap) {
         TTestBasicRuntime runtime(1);
         TAppPrepare app;
-        app.MutableFeatureFlags().SetEnableResourcePools(true);
+        app.SetEnableResourcePools(true);
         runtime.Initialize(app.Unwrap());
         const ui32 nodeId = runtime.GetNodeId(0);
 
@@ -42,7 +43,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
     Y_UNIT_TEST(TryCreateQueryClassifierNullWhenPoolsDisabled) {
         TTestBasicRuntime runtime(1);
         TAppPrepare app;
-        app.MutableFeatureFlags().SetEnableResourcePools(false);
+        app.SetEnableResourcePools(false);
         runtime.Initialize(app.Unwrap());
         const ui32 nodeId = runtime.GetNodeId(0);
 

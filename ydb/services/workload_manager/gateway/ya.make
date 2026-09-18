@@ -10,7 +10,7 @@ PEERDIR(
     ydb/core/cms/console
     ydb/core/kqp/common
     ydb/core/kqp/common/events
-    ydb/core/kqp/runtime/scheduler
+    ydb/core/kqp/runtime
     ydb/core/protos
     ydb/core/resource_pools
 

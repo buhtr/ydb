@@ -3,7 +3,6 @@
 #include "service.h"
 
 #include <ydb/services/workload_manager/common/helpers.h>
-#include <ydb/services/workload_manager/common/logging.h>
 #include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/fetcher.h>
 
@@ -254,8 +253,6 @@ private:
         auto snapshot = std::make_shared<NPrivate::TSnapshot>();
         snapshot->Pools = BuildResourcePoolMapSnapshot();
         snapshot->Classifiers = LastClassifierSnapshot_;
-        snapshot->FeatureFlags = FeatureFlags_;
-        snapshot->WorkloadManagerConfig = WorkloadManagerConfig_;
         for (const auto& [databaseId, info] : DatabasesCache_) {
             snapshot->Databases[databaseId] = NPrivate::TDatabaseInfo{.Serverless = info.Serverless};
         }

@@ -7,7 +7,6 @@
 #include <ydb/services/workload_manager/session_updater.h>
 #include <ydb/services/workload_manager/common/events.h>
 #include <ydb/services/workload_manager/common/helpers.h>
-#include <ydb/services/workload_manager/common/logging.h>
 #include <ydb/services/workload_manager/tables/table_queries.h>
 #include <ydb/services/workload_manager/service/service.h>
 #include <ydb/core/kqp/common/events/events.h>

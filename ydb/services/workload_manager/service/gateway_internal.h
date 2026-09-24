@@ -3,9 +3,6 @@
 #include <ydb/services/workload_manager/gateway.h>
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/snapshot.h>
 
-#include <ydb/core/protos/feature_flags.pb.h>
-#include <ydb/core/protos/workload_manager_config.pb.h>
-
 #include <ydb/library/actors/core/actorid.h>
 
 #include <util/generic/hash.h>
@@ -27,8 +24,6 @@ struct TDatabaseInfo {
 struct TSnapshot {
     TResourcePoolMapPtr Pools;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> Classifiers;
-    NKikimrConfig::TFeatureFlags FeatureFlags;
-    NKikimrConfig::TWorkloadManagerConfig WorkloadManagerConfig;
     THashMap<TString, TDatabaseInfo> Databases;
     bool EnableResourcePools = false;
     bool EnableResourcePoolsOnServerless = false;

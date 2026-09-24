@@ -65,8 +65,10 @@ class TWorkloadService : public TActorBootstrapped<TWorkloadService> {
     };
 
 public:
-    explicit TWorkloadService(NMonitoring::TDynamicCounterPtr counters)
+    TWorkloadService(NMonitoring::TDynamicCounterPtr counters,
+                     std::shared_ptr<NPrivate::TWorkloadManagerGateway> gateway)
         : Counters(counters)
+        , Gateway(std::move(gateway))
     {}
 
     void Bootstrap() {
@@ -234,14 +236,6 @@ public:
         }
     }
 
-    void Handle(TEvGetGateway::TPtr& ev) {
-        if (CacheActor) {
-            TActivationContext::Send(ev->Forward(CacheActor));
-        } else {
-            Send(ev->Sender, new TEvGatewayResponse(nullptr));
-        }
-    }
-
     STRICT_STFUNC(MainState,
         sFunc(TEvents::TEvPoison, HandlePoison);
         sFunc(NConsole::TEvConfigsDispatcher::TEvSetConfigSubscriptionResponse, HandleSetConfigSubscriptionResponse);
@@ -254,7 +248,6 @@ public:
         hFunc(TEvCleanupRequest, Handle);
         hFunc(TEvents::TEvWakeup, Handle);
         hFunc(NMetadata::NProvider::TEvRefreshSubscriberData, Handle);
-        hFunc(TEvGetGateway, Handle);
 
         hFunc(TEvFetchDatabaseResponse, Handle);
         hFunc(TEvPrivate::TEvFetchPoolResponse, Handle);
@@ -562,7 +555,7 @@ private:
         ServiceInitialized = true;
 
         LOG_I("Started workload service initialization");
-        CacheActor = Register(CreateResourcePoolsCacheActor(SelfId()));
+        CacheActor = Register(CreateResourcePoolsCacheActor(Gateway));
         Register(CreateCleanupTablesActor());
         RunNodeInfoRequest();
     }
@@ -740,12 +733,16 @@ private:
     std::unique_ptr<TCpuQuotaManagerState> CpuQuotaManager;
     ui32 NodeCount = 0;
     TActorId CacheActor;
+    std::shared_ptr<NPrivate::TWorkloadManagerGateway> Gateway;
 };
 
 }  // anonymous namespace
 
-IActor* CreateService(NMonitoring::TDynamicCounterPtr counters) {
-    return new NWorkloadManager::TWorkloadService(counters);
+IActor* CreateService(
+    NMonitoring::TDynamicCounterPtr counters,
+    std::shared_ptr<NPrivate::TWorkloadManagerGateway> gateway)
+{
+    return new NWorkloadManager::TWorkloadService(counters, std::move(gateway));
 }
 
 NMonitoring::TDynamicCounterPtr GetWorkloadManagerCounters(NMonitoring::TDynamicCounterPtr rootCounters) {

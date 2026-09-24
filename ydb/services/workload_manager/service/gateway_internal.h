@@ -1,6 +1,5 @@
 #pragma once
 
-#include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/gateway.h>
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/snapshot.h>
 
@@ -8,28 +7,12 @@
 #include <ydb/core/protos/workload_manager_config.pb.h>
 
 #include <ydb/library/actors/core/actorid.h>
-#include <ydb/library/actors/core/event_local.h>
 
 #include <util/generic/hash.h>
 #include <util/generic/string.h>
 #include <util/system/spinlock.h>
 
 #include <memory>
-
-
-namespace NKikimr::NWorkloadManager {
-
-struct TEvGetGateway : NActors::TEventLocal<TEvGetGateway, TWorkloadManagerEvents::EvGetGateway> {
-};
-
-struct TEvGatewayResponse : NActors::TEventLocal<TEvGatewayResponse, TWorkloadManagerEvents::EvGatewayResponse> {
-    TGatewayPtr Gateway;
-    explicit TEvGatewayResponse(TGatewayPtr gateway)
-        : Gateway(std::move(gateway))
-    {}
-};
-
-}
 
 
 namespace NKikimr::NWorkloadManager::NPrivate {
@@ -63,5 +46,31 @@ struct TSnapshot {
 };
 
 using TSnapshotPtr = std::shared_ptr<const TSnapshot>;
+
+///
+/// Server-side implementation of IGateway. Created in the initializer and
+/// stored in `AppData()->WorkloadManagerGateway`. Cache actor writes
+/// snapshots via `PublishSnapshot`; consumers call `TryCreateQueryClassifier`.
+///
+class TWorkloadManagerGateway : public IGateway {
+public:
+    void OnRegistered(NActors::TActorId cacheActorId) {
+        CacheActorId_ = cacheActorId;
+    }
+
+    void PublishSnapshot(TSnapshotPtr snapshot) {
+        with_lock (Lock_) {
+            Snapshot_ = std::move(snapshot);
+        }
+    }
+
+    std::shared_ptr<IQueryClassifier> TryCreateQueryClassifier(
+        const TString& databaseId, TClassifyContext context) override;
+
+private:
+    mutable TAdaptiveLock Lock_;
+    TSnapshotPtr Snapshot_;
+    NActors::TActorId CacheActorId_;
+};
 
 }

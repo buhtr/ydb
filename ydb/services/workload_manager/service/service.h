@@ -1,5 +1,7 @@
 #pragma once
 
+#include <ydb/services/workload_manager/service/gateway_internal.h>
+
 #include <ydb/core/resource_pools/resource_pool_settings.h>
 
 #include <ydb/library/actors/core/actor.h>
@@ -11,6 +13,8 @@ NActors::TActorId MakeServiceId(ui32 nodeId);
 
 NMonitoring::TDynamicCounterPtr GetWorkloadManagerCounters(NMonitoring::TDynamicCounterPtr rootCounters);
 
-NActors::IActor* CreateService(NMonitoring::TDynamicCounterPtr counters);
+NActors::IActor* CreateService(
+    NMonitoring::TDynamicCounterPtr counters,
+    std::shared_ptr<NPrivate::TWorkloadManagerGateway> gateway);
 
 }  // namespace NKikimr::NWorkloadManager

@@ -25,8 +25,6 @@ struct TWorkloadManagerEvents {
         EvUpdatePoolInfo,
         EvSubscribeOnPoolChanges,
         EvFetchDatabaseResponse,
-        EvGetGateway,
-        EvGatewayResponse,
     };
 };
 

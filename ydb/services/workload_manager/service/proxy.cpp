@@ -51,7 +51,7 @@ private:
 class TFetcherActor : public NActors::TActorCoroImpl {
 public:
     explicit TFetcherActor(std::shared_ptr<TGatewayProxy> gateway)
-        : NActors::TActorCoroImpl(16_KB)
+        : NActors::TActorCoroImpl(64_KB)
         , Gateway_(std::move(gateway))
     {}
 

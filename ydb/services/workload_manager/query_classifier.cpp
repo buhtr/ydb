@@ -7,6 +7,7 @@
 #include <ydb/services/workload_manager/common/helpers.h>
 
 #include <ydb/core/base/appdata.h>
+#include <ydb/core/kqp/query_data/kqp_prepared_query.h>
 
 namespace NKikimr::NWorkloadManager {
 

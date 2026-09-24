@@ -9,6 +9,7 @@
 #include <ydb/services/workload_manager/service/service.h>
 #include <ydb/services/workload_manager/common/events.h>
 #include <ydb/services/workload_manager/common/helpers.h>
+#include <ydb/services/workload_manager/common/logging.h>
 
 #include <ydb/core/tx/schemeshard/schemeshard.h>
 #include <ydb/core/tx/tx_proxy/proxy.h>

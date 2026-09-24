@@ -2,8 +2,6 @@
 
 #include <ydb/services/workload_manager/service/gateway_internal.h>
 
-#include <ydb/core/resource_pools/resource_pool_settings.h>
-
 #include <ydb/library/actors/core/actor.h>
 #include <library/cpp/monlib/dynamic_counters/counters.h>
 

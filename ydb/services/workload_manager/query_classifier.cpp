@@ -4,6 +4,8 @@
 #include "has_stream_matcher.h"
 #include "query_classifier.h"
 
+#include <ydb/services/workload_manager/common/helpers.h>
+
 #include <ydb/core/base/appdata.h>
 
 namespace NKikimr::NWorkloadManager {

@@ -3,6 +3,7 @@
 #include "service.h"
 
 #include <ydb/services/workload_manager/common/helpers.h>
+#include <ydb/services/workload_manager/common/logging.h>
 #include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/fetcher.h>
 

@@ -15,6 +15,6 @@ NMonitoring::TDynamicCounterPtr GetWorkloadManagerCounters(NMonitoring::TDynamic
 
 NActors::IActor* CreateService(
     NMonitoring::TDynamicCounterPtr counters,
-    std::shared_ptr<NPrivate::TWorkloadManagerGateway> gateway);
+    TGatewayPtr gateway);
 
 }  // namespace NKikimr::NWorkloadManager

@@ -7,7 +7,6 @@
 
 namespace NKikimr::NWorkloadManager {
 
-NActors::IActor* CreateResourcePoolsCacheActor(
-    std::shared_ptr<NPrivate::TWorkloadManagerGateway> gateway);
+NActors::IActor* CreateResourcePoolsCacheActor(std::shared_ptr<NPrivate::TWorkloadManagerGateway> gateway);
 
 }

@@ -2,8 +2,8 @@
 
 #include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/gateway.h>
-#include <ydb/services/workload_manager/gateway/internal.h>
-#include <ydb/services/workload_manager/gateway/resource_pools_cache_actor.h>
+#include <ydb/services/workload_manager/service/gateway_internal.h>
+#include <ydb/services/workload_manager/service/resource_pools_cache_actor.h>
 #include <ydb/services/workload_manager/service/service.h>
 #include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
 

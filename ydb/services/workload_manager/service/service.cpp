@@ -11,8 +11,8 @@
 
 #include <ydb/services/workload_manager/actors/actors.h>
 #include <ydb/services/workload_manager/common/helpers.h>
-#include <ydb/services/workload_manager/gateway/internal.h>
-#include <ydb/services/workload_manager/gateway/resource_pools_cache_actor.h>
+#include <ydb/services/workload_manager/service/gateway_internal.h>
+#include <ydb/services/workload_manager/service/resource_pools_cache_actor.h>
 #include <ydb/services/workload_manager/tables/table_queries.h>
 
 #include <ydb/core/mind/tenant_node_enumeration.h>

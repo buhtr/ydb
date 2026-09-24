@@ -1,8 +1,9 @@
+#include "gateway_internal.h"
 #include "resource_pools_cache_actor.h"
+#include "service.h"
 
 #include <ydb/services/workload_manager/common/helpers.h>
 #include <ydb/services/workload_manager/events.h>
-#include <ydb/services/workload_manager/gateway/internal.h>
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/fetcher.h>
 
 #include <ydb/core/base/appdata.h>
@@ -69,7 +70,7 @@ public:
                 CacheActorId_,
                 new NKqp::NScheduler::TEvAddPool(databaseId, effectivePoolId)));
             TActivationContext::Send(new IEventHandle(
-                NWorkloadManager::MakeServiceId(nodeId),
+                MakeServiceId(nodeId),
                 CacheActorId_,
                 new TEvSubscribeOnPoolChanges(databaseId, effectivePoolId)));
         }

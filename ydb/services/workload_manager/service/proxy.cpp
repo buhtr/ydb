@@ -1,7 +1,7 @@
-#include "internal.h"
+#include "gateway_internal.h"
+#include "service.h"
 
 #include <ydb/services/workload_manager/gateway.h>
-#include <ydb/services/workload_manager/service/service.h>
 
 #include <ydb/library/actors/core/actor.h>
 #include <ydb/library/actors/core/actor_coroutine.h>

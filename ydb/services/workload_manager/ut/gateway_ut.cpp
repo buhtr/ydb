@@ -73,6 +73,14 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         runtime.Initialize(app.Unwrap());
         const ui32 nodeId = runtime.GetNodeId(0);
 
+        // Cache actor stands in for WM service here; drop events it doesn't handle.
+        runtime.SetObserverFunc([](TAutoPtr<NActors::IEventHandle>& ev) {
+            if (ev->GetTypeRewrite() == TEvSubscribeOnPoolChanges::EventType) {
+                return NActors::TTestActorRuntimeBase::EEventAction::DROP;
+            }
+            return NActors::TTestActorRuntimeBase::EEventAction::PROCESS;
+        });
+
         const TActorId edge = runtime.AllocateEdgeActor();
         runtime.RegisterService(NKqp::MakeKqpSchedulerServiceId(nodeId), edge);
         auto cacheActor = runtime.Register(CreateResourcePoolsCacheActor(MakeServiceId(nodeId)));

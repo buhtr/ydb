@@ -11,6 +11,7 @@
 
 #include <ydb/services/workload_manager/actors/actors.h>
 #include <ydb/services/workload_manager/common/helpers.h>
+#include <ydb/services/workload_manager/gateway/internal.h>
 #include <ydb/services/workload_manager/gateway/resource_pools_cache_actor.h>
 #include <ydb/services/workload_manager/tables/table_queries.h>
 
@@ -233,6 +234,14 @@ public:
         }
     }
 
+    void Handle(TEvGetGateway::TPtr& ev) {
+        if (CacheActor) {
+            TActivationContext::Send(ev->Forward(CacheActor));
+        } else {
+            Send(ev->Sender, new TEvGatewayResponse(nullptr));
+        }
+    }
+
     STRICT_STFUNC(MainState,
         sFunc(TEvents::TEvPoison, HandlePoison);
         sFunc(NConsole::TEvConfigsDispatcher::TEvSetConfigSubscriptionResponse, HandleSetConfigSubscriptionResponse);
@@ -245,6 +254,7 @@ public:
         hFunc(TEvCleanupRequest, Handle);
         hFunc(TEvents::TEvWakeup, Handle);
         hFunc(NMetadata::NProvider::TEvRefreshSubscriberData, Handle);
+        hFunc(TEvGetGateway, Handle);
 
         hFunc(TEvFetchDatabaseResponse, Handle);
         hFunc(TEvPrivate::TEvFetchPoolResponse, Handle);

@@ -1,7 +1,7 @@
 LIBRARY()
 
 SRCS(
-    gateway.cpp
+    proxy.cpp
     resource_pools_cache_actor.cpp
 )
 

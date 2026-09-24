@@ -372,6 +372,7 @@ public:
         }
 
         ResourceManager_ = GetKqpResourceManager();
+        WorkloadManagerGateway = NWorkloadManager::CreateGateway(SelfId());
         CaFactory_ = NComputeActor::MakeKqpCaFactory(
             TableServiceConfig.GetResourceManager(), ResourceManager_, AsyncIoFactory, FederatedQuerySetup, ChannelService);
 
@@ -1723,18 +1724,13 @@ private:
             return;
         }
 
-        auto gateway = NWorkloadManager::TryGetGateway();
-        if (!gateway) {
-            return;
-        }
-
         auto context = NWorkloadManager::TClassifyContext{
             .PoolId = ev->Get()->GetPoolId(),
             .AppName = sessionInfo ? sessionInfo->ClientApplicationName : "",
             .UserToken = ev->Get()->GetUserToken(),
         };
 
-        auto classifier = gateway->TryCreateQueryClassifier(ev->Get()->GetDatabaseId(), std::move(context));
+        auto classifier = WorkloadManagerGateway->TryCreateQueryClassifier(ev->Get()->GetDatabaseId(), std::move(context));
         if (!classifier) {
             return;
         }
@@ -2131,6 +2127,7 @@ private:
 
     std::shared_ptr<NRm::IKqpResourceManager> ResourceManager_;
     std::shared_ptr<NComputeActor::IKqpNodeComputeActorFactory> CaFactory_;
+    NWorkloadManager::TGatewayPtr WorkloadManagerGateway;
     TIntrusivePtr<TKqpShutdownState> ShutdownState;
     TIntrusivePtr<TModuleResolverState> ModuleResolverState;
 

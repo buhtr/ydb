@@ -81,12 +81,15 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         auto* holder = SpawnGatewayHolder(runtime);
         UNIT_ASSERT(holder->Gateway);
 
-        TClassifyContext ctx{
-            .PoolId = "",
-            .AppName = "",
-            .UserToken = nullptr,
-        };
-        UNIT_ASSERT(holder->Gateway->TryCreateQueryClassifier(TEST_DB, std::move(ctx)));
+        auto classifier = runtime.RunCall([&] {
+            TClassifyContext ctx{
+                .PoolId = "",
+                .AppName = "",
+                .UserToken = nullptr,
+            };
+            return holder->Gateway->TryCreateQueryClassifier(TEST_DB, std::move(ctx));
+        });
+        UNIT_ASSERT(classifier);
     }
 
     Y_UNIT_TEST(TryCreateQueryClassifierNullWhenPoolsDisabled) {

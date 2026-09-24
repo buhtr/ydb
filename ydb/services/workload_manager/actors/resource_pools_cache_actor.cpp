@@ -1,6 +1,7 @@
-#include "gateway_internal.h"
 #include "resource_pools_cache_actor.h"
-#include "service.h"
+
+#include <ydb/services/workload_manager/gateway_internal.h>
+#include <ydb/services/workload_manager/service/service.h>
 
 #include <ydb/services/workload_manager/common/helpers.h>
 #include <ydb/services/workload_manager/events.h>

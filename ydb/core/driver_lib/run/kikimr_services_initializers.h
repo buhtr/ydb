@@ -21,7 +21,7 @@
 
 #include <ydb/core/kqp/common/dynamic_function_registry.h>
 
-#include <ydb/services/workload_manager/service/gateway_internal.h>
+#include <ydb/services/workload_manager/gateway_internal.h>
 
 #include <ydb/library/actors/core/defs.h>
 #include <ydb/library/actors/core/log_settings.h>

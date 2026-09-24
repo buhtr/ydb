@@ -76,7 +76,7 @@
 #include <ydb/core/protos/stream.pb.h>
 #include <ydb/core/protos/workload_manager_config.pb.h>
 
-#include <ydb/services/workload_manager/service/gateway_internal.h>
+#include <ydb/services/workload_manager/gateway_internal.h>
 #include <ydb/core/protos/long_tx_service_config.pb.h>
 #include <ydb/core/protos/data_integrity_trails.pb.h>
 

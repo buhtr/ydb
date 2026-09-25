@@ -32,7 +32,8 @@ std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQu
     const TString& databaseId, TClassifyContext context)
 {
     TSnapshotPtr snapshot;
-    with_lock (Lock_) {
+    {
+        TReadGuard guard(Lock_);
         snapshot = Snapshot_;
     }
 

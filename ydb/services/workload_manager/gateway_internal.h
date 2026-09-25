@@ -7,7 +7,7 @@
 
 #include <util/generic/hash.h>
 #include <util/generic/string.h>
-#include <util/system/spinlock.h>
+#include <util/system/rwlock.h>
 
 #include <memory>
 
@@ -54,16 +54,15 @@ public:
     }
 
     void PublishSnapshot(TSnapshotPtr snapshot) {
-        with_lock (Lock_) {
-            Snapshot_ = std::move(snapshot);
-        }
+        TWriteGuard guard(Lock_);
+        Snapshot_ = std::move(snapshot);
     }
 
     std::shared_ptr<IQueryClassifier> TryCreateQueryClassifier(
         const TString& databaseId, TClassifyContext context) override;
 
 private:
-    mutable TAdaptiveLock Lock_;
+    mutable TRWMutex Lock_;
     TSnapshotPtr Snapshot_;
     NActors::TActorId CacheActorId_;
 };

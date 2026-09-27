@@ -4,7 +4,7 @@
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/snapshot.h>
 
 #include <ydb/library/actors/core/actorid.h>
-#include <ydb/library/cpp/threading/atomic_shared_ptr/atomic_shared_ptr.h>
+#include <library/cpp/threading/atomic_shared_ptr/atomic_shared_ptr.h>
 
 #include <util/generic/hash.h>
 #include <util/generic/string.h>

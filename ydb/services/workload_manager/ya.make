@@ -21,7 +21,8 @@ PEERDIR(
     ydb/core/resource_pools
 
     ydb/library/aclib
-    ydb/library/cpp/threading/atomic_shared_ptr
+
+    library/cpp/threading/atomic_shared_ptr
 
     ydb/library/yql/providers/pq/common
 

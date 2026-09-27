@@ -4,10 +4,10 @@
 #include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/snapshot.h>
 
 #include <ydb/library/actors/core/actorid.h>
+#include <ydb/library/cpp/threading/atomic_shared_ptr/atomic_shared_ptr.h>
 
 #include <util/generic/hash.h>
 #include <util/generic/string.h>
-#include <util/system/rwlock.h>
 
 #include <memory>
 
@@ -40,7 +40,7 @@ struct TSnapshot {
     }
 };
 
-using TSnapshotPtr = std::shared_ptr<const TSnapshot>;
+using TSnapshotPtr = TTrueAtomicSharedPtr<TSnapshot>;
 
 ///
 /// Server-side implementation of IGateway. Created in the initializer and
@@ -54,15 +54,13 @@ public:
     }
 
     void PublishSnapshot(TSnapshotPtr snapshot) {
-        TWriteGuard guard(Lock_);
-        Snapshot_ = std::move(snapshot);
+        Snapshot_.atomic_store(std::move(snapshot));
     }
 
     std::shared_ptr<IQueryClassifier> TryCreateQueryClassifier(
         const TString& databaseId, TClassifyContext context) override;
 
 private:
-    mutable TRWMutex Lock_;
     TSnapshotPtr Snapshot_;
     NActors::TActorId CacheActorId_;
 };

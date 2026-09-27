@@ -31,11 +31,7 @@ namespace NKikimr::NWorkloadManager {
 std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQueryClassifier(
     const TString& databaseId, TClassifyContext context)
 {
-    TSnapshotPtr snapshot;
-    {
-        TReadGuard guard(Lock_);
-        snapshot = Snapshot_;
-    }
+    TSnapshotPtr snapshot = Snapshot_;
 
     if (!snapshot || !snapshot->IsResourcePoolsEnabled(databaseId)) {
         return nullptr;
@@ -252,7 +248,7 @@ private:
     }
 
     void Rebuild() {
-        auto snapshot = std::make_shared<NPrivate::TSnapshot>();
+        auto* snapshot = new NPrivate::TSnapshot();
         snapshot->Pools = BuildResourcePoolMapSnapshot();
         snapshot->Classifiers = LastClassifierSnapshot_;
         for (const auto& [databaseId, info] : DatabasesCache_) {
@@ -260,7 +256,7 @@ private:
         }
         snapshot->EnableResourcePools = EnableResourcePools_;
         snapshot->EnableResourcePoolsOnServerless = EnableResourcePoolsOnServerless_;
-        Gateway_->PublishSnapshot(std::move(snapshot));
+        Gateway_->PublishSnapshot(NPrivate::TSnapshotPtr(snapshot));
     }
 
     TString LogPrefix() const {

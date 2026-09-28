@@ -55,6 +55,7 @@ struct TFixture {
     void Warmup(const TString& databasePath) {
         Runtime.RunCall([databasePath] {
             AppData()->WorkloadManagerGateway->Warmup(databasePath);
+            return 0;
         });
     }
 
@@ -67,6 +68,7 @@ struct TFixture {
     void SubscribeOnReady(const TString& databaseId, const TActorId& subscriber, ui64 cookie) {
         Runtime.RunCall([&, databaseId, cookie] {
             AppData()->WorkloadManagerGateway->SubscribeOnReady(databaseId, subscriber, cookie);
+            return 0;
         });
     }
 

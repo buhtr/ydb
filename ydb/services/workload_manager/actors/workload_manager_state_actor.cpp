@@ -68,20 +68,20 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
     TSnapshotPtr snapshot = Snapshot_;
 
     if (!snapshot || !snapshot->EnableResourcePools) {
-        return {EReadyState::ClassificationDisabled};
+        return TReadyInfo{.State = EReadyState::ClassificationDisabled};
     }
 
     if (const auto it = snapshot->FailedDatabases.find(databaseId); it != snapshot->FailedDatabases.end()) {
-        return {EReadyState::Failed, it->second.Status, it->second.Message};
+        return TReadyInfo{.State = EReadyState::Failed, .FailureStatus = it->second.Status, .FailureMessage = it->second.Message};
     }
 
     const auto it = snapshot->Databases.find(databaseId);
     if (it != snapshot->Databases.end()) {
         if (!snapshot->EnableResourcePoolsOnServerless && it->second.Serverless) {
-            return {EReadyState::ClassificationDisabled};
+            return TReadyInfo{.State = EReadyState::ClassificationDisabled};
         }
         if (snapshot->ClassifierMetadataInitialized) {
-            return {EReadyState::Ready};
+            return TReadyInfo{.State = EReadyState::Ready};
         }
     }
 
@@ -89,7 +89,7 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
         NActors::TActivationContext::Send(new NActors::IEventHandle(
             StateActorId_, {}, new TEvWarmupDatabaseInfo(DatabaseIdToDatabase(databaseId))));
     }
-    return {EReadyState::Pending};
+    return TReadyInfo{.State = EReadyState::Pending};
 }
 
 void NPrivate::TWorkloadManagerGateway::SubscribeOnReady(const TString& databaseId,
@@ -488,7 +488,7 @@ private:
     std::unordered_map<ui32, TString> WatchKeyToDbId_;
     std::unordered_map<TString, std::vector<TPendingSubscriber>> PendingSubscribers_;
     std::unordered_set<TString> InFlightFetchesByPath_;
-    std::unordered_map<TString, NPrivate::TFailureInfo> FailedDatabases_;
+    THashMap<TString, NPrivate::TFailureInfo> FailedDatabases_;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> LastClassifierSnapshot_;
     NKikimrConfig::TFeatureFlags FeatureFlags_;
     NKikimrConfig::TWorkloadManagerConfig WorkloadManagerConfig_;

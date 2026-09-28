@@ -18,6 +18,11 @@ struct TDatabaseInfo {
     bool Serverless = false;
 };
 
+struct TFailureInfo {
+    Ydb::StatusIds::StatusCode Status = Ydb::StatusIds::SUCCESS;
+    TString Message;
+};
+
 ///
 /// Snapshot of the workload manager state. Immutable once published.
 ///
@@ -25,8 +30,10 @@ struct TSnapshot {
     TResourcePoolMapPtr Pools;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> Classifiers;
     THashMap<TString, TDatabaseInfo> Databases;
+    THashMap<TString, TFailureInfo> FailedDatabases;
     bool EnableResourcePools = false;
     bool EnableResourcePoolsOnServerless = false;
+    bool ClassifierMetadataInitialized = false;
 
     bool IsResourcePoolsEnabled(const TString& databaseId) const {
         if (!EnableResourcePools) {
@@ -49,8 +56,8 @@ using TSnapshotPtr = TTrueAtomicSharedPtr<TSnapshot>;
 ///
 class TWorkloadManagerGateway : public IGateway {
 public:
-    void OnRegistered(NActors::TActorId cacheActorId) {
-        CacheActorId_ = cacheActorId;
+    void OnRegistered(NActors::TActorId stateActorId) {
+        StateActorId_ = stateActorId;
     }
 
     void PublishSnapshot(TSnapshotPtr snapshot) {
@@ -60,9 +67,24 @@ public:
     std::shared_ptr<IQueryClassifier> TryCreateQueryClassifier(
         const TString& databaseId, TClassifyContext context) override;
 
+    TReadyInfo EnsureReady(const TString& databaseId) override;
+
+    void SubscribeOnReady(const TString& databaseId,
+                          NActors::TActorId subscriber, ui64 cookie) override;
+
+    void Warmup(const TString& databasePath) override;
+
+    TSnapshotPtr GetSnapshot() const {
+        return Snapshot_;
+    }
+
+    NActors::TActorId GetStateActorId() const {
+        return StateActorId_;
+    }
+
 private:
     TSnapshotPtr Snapshot_;
-    NActors::TActorId CacheActorId_;
+    NActors::TActorId StateActorId_;
 };
 
 }

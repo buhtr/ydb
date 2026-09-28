@@ -3,7 +3,7 @@
 #include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/gateway.h>
 #include <ydb/services/workload_manager/gateway_internal.h>
-#include <ydb/services/workload_manager/actors/resource_pools_cache_actor.h>
+#include <ydb/services/workload_manager/actors/workload_manager_state_actor.h>
 #include <ydb/services/workload_manager/service/service.h>
 #include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
 
@@ -56,7 +56,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         const TActorId edge = runtime.AllocateEdgeActor();
         runtime.RegisterService(NKqp::MakeKqpSchedulerServiceId(nodeId), edge);
         runtime.RegisterService(MakeServiceId(nodeId), edge);
-        runtime.Register(CreateResourcePoolsCacheActor(gateway));
+        runtime.Register(CreateWorkloadManagerStateActor(gateway));
 
         TDispatchOptions options;
         options.FinalEvents.emplace_back(TEvents::TSystem::Bootstrap, 1);
@@ -81,7 +81,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         const TActorId edge = runtime.AllocateEdgeActor();
         runtime.RegisterService(NKqp::MakeKqpSchedulerServiceId(nodeId), edge);
         runtime.RegisterService(MakeServiceId(nodeId), edge);
-        runtime.Register(CreateResourcePoolsCacheActor(gateway));
+        runtime.Register(CreateWorkloadManagerStateActor(gateway));
 
         TDispatchOptions options;
         options.FinalEvents.emplace_back(TEvents::TSystem::Bootstrap, 1);

@@ -8,6 +8,7 @@
 #include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
 
 #include <ydb/core/base/appdata.h>
+#include <ydb/core/base/path.h>
 #include <ydb/core/kqp/common/simple/services.h>
 #include <ydb/core/kqp/runtime/scheduler/kqp_compute_scheduler_service.h>
 #include <ydb/core/testlib/basics/appdata.h>
@@ -20,7 +21,6 @@ namespace NKikimr::NWorkloadManager {
 namespace {
 
 constexpr TDuration WAIT_TIMEOUT = TDuration::Seconds(10);
-constexpr TDuration NEGATIVE_WAIT_TIMEOUT = TDuration::MilliSeconds(200);
 
 struct TFixture {
     TTestBasicRuntime Runtime{1};
@@ -57,7 +57,7 @@ struct TFixture {
                              Ydb::StatusIds::StatusCode status = Ydb::StatusIds::SUCCESS,
                              NYql::TIssues issues = {}) {
         Runtime.Send(new IEventHandle(
-            StateActor, {},
+            StateActor, SchemeCacheEdge,
             new TEvFetchDatabaseResponse(status, databasePath, databaseId, serverless, pathId, std::move(issues))));
     }
 };
@@ -66,6 +66,11 @@ TReadyInfo EnsureReady(TFixture& fx, const TString& databaseId) {
     return fx.Runtime.RunCall([databaseId] {
         return AppData()->WorkloadManagerGateway->EnsureReady(databaseId);
     });
+}
+
+TString GetNavigatePath(const TEvTxProxySchemeCache::TEvNavigateKeySet::TPtr& ev) {
+    UNIT_ASSERT(!ev->Get()->Request->ResultSet.empty());
+    return JoinPath(ev->Get()->Request->ResultSet[0].Path);
 }
 
 }
@@ -85,7 +90,10 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Init();
 
         fx.InjectFetchResponse("/Root/db1", "/Root/db1", /*serverless=*/false, TPathId(1, 1));
-        fx.Runtime.DispatchEvents({});
+        // Successful fetch response makes the state actor subscribe to a scheme cache watch —
+        // use that as the sync point.
+        auto watch = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvWatchPathId>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
+        UNIT_ASSERT(watch);
 
         auto info = EnsureReady(fx, "/Root/db1");
         UNIT_ASSERT(info.State == EReadyState::Ready);
@@ -96,10 +104,11 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Init();
 
         fx.Runtime.Send(new IEventHandle(
-            fx.StateActor, {}, new TEvWarmupDatabaseInfo("/Root/db1")));
+            fx.StateActor, fx.SchemeCacheEdge, new TEvWarmupDatabaseInfo("/Root/db1")));
 
         auto ev = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
         UNIT_ASSERT(ev);
+        UNIT_ASSERT_VALUES_EQUAL(GetNavigatePath(ev), "/Root/db1");
     }
 
     Y_UNIT_TEST(TestWarmupDedupsByPath) {
@@ -107,15 +116,19 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Init();
 
         fx.Runtime.Send(new IEventHandle(
-            fx.StateActor, {}, new TEvWarmupDatabaseInfo("/Root/db1")));
-        fx.Runtime.Send(new IEventHandle(
-            fx.StateActor, {}, new TEvWarmupDatabaseInfo("/Root/db1")));
-
+            fx.StateActor, fx.SchemeCacheEdge, new TEvWarmupDatabaseInfo("/Root/dbA")));
         auto first = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
-        UNIT_ASSERT(first);
+        UNIT_ASSERT_VALUES_EQUAL(GetNavigatePath(first), "/Root/dbA");
 
-        auto second = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, NEGATIVE_WAIT_TIMEOUT);
-        UNIT_ASSERT_C(!second, "Second Warmup for the same path should not spawn a fetcher");
+        // Second warmup for the same path should be deduped; a warmup for a different path proceeds.
+        fx.Runtime.Send(new IEventHandle(
+            fx.StateActor, fx.SchemeCacheEdge, new TEvWarmupDatabaseInfo("/Root/dbA")));
+        fx.Runtime.Send(new IEventHandle(
+            fx.StateActor, fx.SchemeCacheEdge, new TEvWarmupDatabaseInfo("/Root/dbB")));
+
+        auto next = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
+        UNIT_ASSERT_VALUES_EQUAL_C(GetNavigatePath(next), "/Root/dbB",
+                                    "Second Warmup for the same path should not spawn a fetcher");
     }
 
     Y_UNIT_TEST(TestWarmupIgnoresEmptyPath) {
@@ -123,10 +136,13 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Init();
 
         fx.Runtime.Send(new IEventHandle(
-            fx.StateActor, {}, new TEvWarmupDatabaseInfo("")));
+            fx.StateActor, fx.SchemeCacheEdge, new TEvWarmupDatabaseInfo("")));
+        fx.Runtime.Send(new IEventHandle(
+            fx.StateActor, fx.SchemeCacheEdge, new TEvWarmupDatabaseInfo("/Root/db1")));
 
-        auto ev = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, NEGATIVE_WAIT_TIMEOUT);
-        UNIT_ASSERT(!ev);
+        auto ev = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
+        UNIT_ASSERT_VALUES_EQUAL_C(GetNavigatePath(ev), "/Root/db1",
+                                    "Empty-path Warmup should not spawn a fetcher");
     }
 
     Y_UNIT_TEST(TestSubscribeWhenAlreadyKnown) {
@@ -134,7 +150,8 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Init();
 
         fx.InjectFetchResponse("/Root/db1", "/Root/db1", /*serverless=*/false, TPathId(1, 1));
-        fx.Runtime.DispatchEvents({});
+        auto watch = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvWatchPathId>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
+        UNIT_ASSERT(watch);
 
         const TActorId subscriber = fx.Runtime.AllocateEdgeActor();
         fx.Runtime.Send(new IEventHandle(
@@ -198,7 +215,8 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Init();
 
         fx.InjectFetchResponse("/Root/db1", "/Root/db1", /*serverless=*/true, TPathId(1, 1));
-        fx.Runtime.DispatchEvents({});
+        auto watch = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvWatchPathId>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
+        UNIT_ASSERT(watch);
 
         auto info = EnsureReady(fx, "/Root/db1");
         UNIT_ASSERT(info.State == EReadyState::ClassificationDisabled);

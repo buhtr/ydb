@@ -70,7 +70,7 @@ TReadyInfo EnsureReady(TFixture& fx, const TString& databaseId) {
 
 TString GetNavigatePath(const TEvTxProxySchemeCache::TEvNavigateKeySet::TPtr& ev) {
     UNIT_ASSERT(!ev->Get()->Request->ResultSet.empty());
-    return JoinPath(ev->Get()->Request->ResultSet[0].Path);
+    return CanonizePath(JoinPath(ev->Get()->Request->ResultSet[0].Path));
 }
 
 }

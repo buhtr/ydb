@@ -744,7 +744,12 @@ public:
         if (auto& gateway = AppData()->WorkloadManagerGateway) {
             gateway->Warmup(ev->Get()->GetDatabase());
         }
+        
         if (!DatabasesCache.SetDatabaseIdOrDefer(ev, static_cast<i32>(EDelayedRequestType::QueryRequest), ActorContext())) {
+            return;
+        }
+
+        if (!EnsureWorkloadManagerReady(ev)) {
             return;
         }
 
@@ -850,9 +855,7 @@ public:
             ev->Get()->SetWmSessionUpdater(sessionInfo->WmState);
         }
 
-        if (!SetupWorkloadManagerQueryClassifier(ev, sessionInfo, requestId)) {
-            return;
-        }
+        SetupWorkloadManagerQueryClassifier(ev, sessionInfo, requestId);
 
         TActorId targetId;
         if (sessionInfo) {
@@ -1755,7 +1758,9 @@ private:
 
     // Returns true if the caller should continue processing the query; false if the query was
     // deferred (parked awaiting workload-manager readiness) or replied to with an error.
-    [[nodiscard]] bool SetupWorkloadManagerQueryClassifier(TEvKqp::TEvQueryRequest::TPtr& ev, const TKqpSessionInfo* sessionInfo, ui64 requestId) {
+    // Called right after SetDatabaseIdOrDefer and before any session/request state is created,
+    // so a deferred query can restart cleanly on re-dispatch.
+    [[nodiscard]] bool EnsureWorkloadManagerReady(TEvKqp::TEvQueryRequest::TPtr& ev) {
         if (ev->Get()->IsInternalCall() || ev->Get()->GetIsWarmupCompilation()) {
             return true;
         }
@@ -1768,34 +1773,50 @@ private:
         const TString& databaseId = ev->Get()->GetDatabaseId();
         const auto info = gateway->EnsureReady(databaseId);
         switch (info.State) {
+            case NWorkloadManager::EReadyState::Ready:
             case NWorkloadManager::EReadyState::ClassificationDisabled:
                 return true;
 
-            case NWorkloadManager::EReadyState::Failed:
-                ReplyProcessError(info.FailureStatus, info.FailureMessage, requestId);
+            case NWorkloadManager::EReadyState::Failed: {
+                NYql::TIssues issues;
+                if (info.FailureMessage) {
+                    issues.AddIssue(NYql::TIssue(info.FailureMessage));
+                }
+                Send(SelfId(),
+                     new TEvKqp::TEvDelayedRequestError(THolder<IEventHandle>(ev.Release()), info.FailureStatus, std::move(issues)),
+                     0,
+                     static_cast<ui64>(EDelayedRequestType::WorkloadManagerClassifierReady));
                 return false;
+            }
 
             case NWorkloadManager::EReadyState::Pending: {
                 const ui64 cookie = ++NextClassifierReadyCookie;
                 ParkedClassifierReady[cookie] = THolder<IEventHandle>(ev.Release());
-                PendingRequests.Erase(requestId);
                 gateway->SubscribeOnReady(databaseId, SelfId(), cookie);
                 return false;
             }
-
-            case NWorkloadManager::EReadyState::Ready: {
-                auto context = NWorkloadManager::TClassifyContext{
-                    .PoolId = ev->Get()->GetPoolId(),
-                    .AppName = sessionInfo ? sessionInfo->ClientApplicationName : "",
-                    .UserToken = ev->Get()->GetUserToken(),
-                };
-                if (auto classifier = gateway->TryCreateQueryClassifier(databaseId, std::move(context))) {
-                    ev->Get()->SetWmQueryClassifier(std::move(classifier));
-                }
-                return true;
-            }
         }
         return true;
+    }
+
+    void SetupWorkloadManagerQueryClassifier(TEvKqp::TEvQueryRequest::TPtr& ev, const TKqpSessionInfo* sessionInfo, ui64 /*requestId*/) {
+        if (ev->Get()->IsInternalCall() || ev->Get()->GetIsWarmupCompilation()) {
+            return;
+        }
+
+        auto& gateway = AppData()->WorkloadManagerGateway;
+        if (!gateway) {
+            return;
+        }
+
+        auto context = NWorkloadManager::TClassifyContext{
+            .PoolId = ev->Get()->GetPoolId(),
+            .AppName = sessionInfo ? sessionInfo->ClientApplicationName : "",
+            .UserToken = ev->Get()->GetUserToken(),
+        };
+        if (auto classifier = gateway->TryCreateQueryClassifier(ev->Get()->GetDatabaseId(), std::move(context))) {
+            ev->Get()->SetWmQueryClassifier(std::move(classifier));
+        }
     }
 
     void UpdateYqlLogLevels() {

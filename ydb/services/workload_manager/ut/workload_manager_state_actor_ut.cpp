@@ -19,6 +19,9 @@ namespace NKikimr::NWorkloadManager {
 
 namespace {
 
+constexpr TDuration WAIT_TIMEOUT = TDuration::Seconds(10);
+constexpr TDuration NEGATIVE_WAIT_TIMEOUT = TDuration::MilliSeconds(200);
+
 struct TFixture {
     TTestBasicRuntime Runtime{1};
     std::shared_ptr<NPrivate::TWorkloadManagerGateway> Gateway;
@@ -95,8 +98,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, {}, new TEvWarmupDatabaseInfo("/Root/db1")));
 
-        TAutoPtr<IEventHandle> handle;
-        auto* ev = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, handle, TDuration::Seconds(5));
+        auto ev = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
         UNIT_ASSERT(ev);
     }
 
@@ -109,12 +111,10 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, {}, new TEvWarmupDatabaseInfo("/Root/db1")));
 
-        TAutoPtr<IEventHandle> handle;
-        auto* first = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, handle, TDuration::Seconds(5));
+        auto first = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
         UNIT_ASSERT(first);
 
-        auto* second = fx.Runtime.GrabEdgeEventIf<TEvTxProxySchemeCache::TEvNavigateKeySet>(
-            fx.SchemeCacheEdge, handle, [](auto&) { return true; }, TDuration::MilliSeconds(200));
+        auto second = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, NEGATIVE_WAIT_TIMEOUT);
         UNIT_ASSERT_C(!second, "Second Warmup for the same path should not spawn a fetcher");
     }
 
@@ -125,9 +125,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, {}, new TEvWarmupDatabaseInfo("")));
 
-        TAutoPtr<IEventHandle> handle;
-        auto* ev = fx.Runtime.GrabEdgeEventIf<TEvTxProxySchemeCache::TEvNavigateKeySet>(
-            fx.SchemeCacheEdge, handle, [](auto&) { return true; }, TDuration::MilliSeconds(200));
+        auto ev = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, NEGATIVE_WAIT_TIMEOUT);
         UNIT_ASSERT(!ev);
     }
 
@@ -143,11 +141,10 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
             fx.StateActor, subscriber,
             new TEvSubscribeOnWorkloadManagerReady("/Root/db1", subscriber, /*cookie=*/42)));
 
-        TAutoPtr<IEventHandle> handle;
-        auto* ev = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, handle, TDuration::Seconds(5));
+        auto ev = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, WAIT_TIMEOUT);
         UNIT_ASSERT(ev);
-        UNIT_ASSERT_VALUES_EQUAL(ev->Cookie, 42u);
-        UNIT_ASSERT_EQUAL(ev->Status, Ydb::StatusIds::SUCCESS);
+        UNIT_ASSERT_VALUES_EQUAL(ev->Get()->Cookie, 42u);
+        UNIT_ASSERT_EQUAL(ev->Get()->Status, Ydb::StatusIds::SUCCESS);
     }
 
     Y_UNIT_TEST(TestSubscribeWhenNotKnow) {
@@ -159,16 +156,15 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
             fx.StateActor, subscriber,
             new TEvSubscribeOnWorkloadManagerReady("/Root/db1", subscriber, /*cookie=*/7)));
 
-        TAutoPtr<IEventHandle> handle;
-        auto* navigate = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, handle, TDuration::Seconds(5));
+        auto navigate = fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_C(navigate, "SubscribeOnReady should trigger a fetch when info is missing");
 
         fx.InjectFetchResponse("/Root/db1", "/Root/db1", /*serverless=*/false, TPathId(1, 1));
 
-        auto* ready = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, handle, TDuration::Seconds(5));
+        auto ready = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, WAIT_TIMEOUT);
         UNIT_ASSERT(ready);
-        UNIT_ASSERT_VALUES_EQUAL(ready->Cookie, 7u);
-        UNIT_ASSERT_EQUAL(ready->Status, Ydb::StatusIds::SUCCESS);
+        UNIT_ASSERT_VALUES_EQUAL(ready->Get()->Cookie, 7u);
+        UNIT_ASSERT_EQUAL(ready->Get()->Status, Ydb::StatusIds::SUCCESS);
     }
 
     Y_UNIT_TEST(TestSubscribeWhenError) {
@@ -180,18 +176,17 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
             fx.StateActor, subscriber,
             new TEvSubscribeOnWorkloadManagerReady("/Root/db1", subscriber, /*cookie=*/9)));
 
-        TAutoPtr<IEventHandle> handle;
-        fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, handle, TDuration::Seconds(5));
+        fx.Runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvNavigateKeySet>(fx.SchemeCacheEdge, WAIT_TIMEOUT);
 
         NYql::TIssues issues;
         issues.AddIssue(NYql::TIssue("scheme cache miss"));
         fx.InjectFetchResponse("/Root/db1", "/Root/db1", /*serverless=*/false, TPathId(), Ydb::StatusIds::NOT_FOUND, issues);
 
-        auto* ready = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, handle, TDuration::Seconds(5));
+        auto ready = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, WAIT_TIMEOUT);
         UNIT_ASSERT(ready);
-        UNIT_ASSERT_VALUES_EQUAL(ready->Cookie, 9u);
-        UNIT_ASSERT_EQUAL(ready->Status, Ydb::StatusIds::NOT_FOUND);
-        UNIT_ASSERT_STRING_CONTAINS(ready->Message, "scheme cache miss");
+        UNIT_ASSERT_VALUES_EQUAL(ready->Get()->Cookie, 9u);
+        UNIT_ASSERT_EQUAL(ready->Get()->Status, Ydb::StatusIds::NOT_FOUND);
+        UNIT_ASSERT_STRING_CONTAINS(ready->Get()->Message, "scheme cache miss");
 
         auto info = EnsureReady(fx, "/Root/db1");
         UNIT_ASSERT(info.State == EReadyState::Failed);

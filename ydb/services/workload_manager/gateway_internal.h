@@ -37,7 +37,7 @@ struct TSnapshot {
         }
         const auto it = Databases.find(databaseId);
         if (it == Databases.end()) {
-            return EnableResourcePoolsOnServerless;  // unknown DB assumed non-serverless
+            return false;
         }
         if (it->second.FetchStatus != Ydb::StatusIds::SUCCESS) {
             return false;

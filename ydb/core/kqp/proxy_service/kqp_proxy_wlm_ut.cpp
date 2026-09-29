@@ -92,14 +92,19 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
         TWlmFixture fx;
 
         fx.Runtime->SetEventFilter([runtime = fx.Runtime](TTestActorRuntimeBase&, TAutoPtr<IEventHandle>& ev) -> bool {
-            if (ev->GetTypeRewrite() == NWorkloadManager::TEvWorkloadManagerReady::EventType) {
-                const auto* original = ev->Get<NWorkloadManager::TEvWorkloadManagerReady>();
-                auto* replacement = new NWorkloadManager::TEvWorkloadManagerReady(
-                    original->Cookie, Ydb::StatusIds::NOT_FOUND, "simulated fetch failure");
-                runtime->Send(new IEventHandle(ev->Recipient, ev->Sender, replacement, 0, ev->Cookie));
-                return true;
+            if (ev->GetTypeRewrite() != NWorkloadManager::TEvWorkloadManagerReady::EventType) {
+                return false;
             }
-            return false;
+            const auto* original = ev->Get<NWorkloadManager::TEvWorkloadManagerReady>();
+            // Only rewrite the real reply from the state actor (SUCCESS) — our injected replacement
+            // reuses the same event type, so let it through to avoid an infinite filter loop.
+            if (original->Status != Ydb::StatusIds::SUCCESS) {
+                return false;
+            }
+            auto* replacement = new NWorkloadManager::TEvWorkloadManagerReady(
+                original->Cookie, Ydb::StatusIds::NOT_FOUND, "simulated fetch failure");
+            runtime->Send(new IEventHandle(ev->Recipient, ev->Sender, replacement, 0, ev->Cookie));
+            return true;
         });
 
         fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));

@@ -4,8 +4,11 @@
 #include <ydb/services/workload_manager/events.h>
 #include <ydb/services/workload_manager/gateway.h>
 #include <ydb/services/workload_manager/gateway_internal.h>
+#include <ydb/services/workload_manager/metadata_subscription/resource_pool_classifier/snapshot.h>
 #include <ydb/services/workload_manager/service/service.h>
 #include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
+
+#include <ydb/services/metadata/abstract/common.h>
 
 #include <ydb/core/base/appdata.h>
 #include <ydb/core/base/path.h>
@@ -52,6 +55,12 @@ struct TFixture {
         TDispatchOptions options;
         options.FinalEvents.emplace_back(TEvents::TSystem::Bootstrap, 1);
         Runtime.DispatchEvents(options);
+
+        // Force ClassifierMetadataInitialized_ regardless of whether the process-wide
+        // NMetadata::NProvider::TServiceOperator singleton was flipped by a prior test.
+        Runtime.Send(new IEventHandle(
+            StateActor, Sender,
+            new NMetadata::NProvider::TEvRefreshSubscriberData(MakeClassifierSnapshot({}))));
     }
 
     void Warmup(const TString& databasePath) {

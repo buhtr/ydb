@@ -46,22 +46,13 @@ struct TWlmFixture {
         KqpProxy = MakeKqpProxyID(Runtime->GetNodeId(0));
         Sender = Runtime->AllocateEdgeActor();
         Cerr << "[WLM_TEST_DBG] fixture ctor: KqpProxy=" << KqpProxy << " Sender=" << Sender << Endl;
-
-        // Push an empty classifier snapshot into the WM state actor so ClassifierMetadataInitialized_
-        // becomes true deterministically. Without this, the metadata provider may never emit a
-        // snapshot (empty .metadata tables in a fresh Tests::TServer), and EnsureReady stays Pending.
-        Runtime->Send(new IEventHandle(
-            NWorkloadManager::MakeServiceId(Runtime->GetNodeId(0)),
-            Sender,
-            new NMetadata::NProvider::TEvRefreshSubscriberData(
-                NWorkloadManager::MakeClassifierSnapshot({}))));
-        Cerr << "[WLM_TEST_DBG] fixture ctor: TEvRefreshSubscriberData injected" << Endl;
     }
 
     static Tests::TServerSettings BuildSettings(TPortManager& tp) {
         auto settings = Tests::TServerSettings(tp.GetPort(2134))
             .SetDomainName("Root")
-            .SetUseRealThreads(false);
+            .SetUseRealThreads(false)
+            .SetEnableMetadataProvider(false);  // avoids .metadata table lookups that hang init in this bare setup
         settings.AppConfig->MutableFeatureFlags()->SetEnableResourcePools(true);
         return settings;
     }

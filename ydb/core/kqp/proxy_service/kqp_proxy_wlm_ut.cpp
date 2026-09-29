@@ -2,7 +2,10 @@
 #include <ydb/core/kqp/ut/common/kqp_ut_common.h>
 #include <ydb/core/testlib/basics/appdata.h>
 #include <ydb/core/testlib/test_client.h>
+#include <ydb/services/metadata/abstract/common.h>
 #include <ydb/services/workload_manager/events.h>
+#include <ydb/services/workload_manager/service/service.h>
+#include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
 
 #include <library/cpp/testing/unittest/registar.h>
 
@@ -33,6 +36,15 @@ struct TWlmFixture {
         Runtime = Server->GetRuntime();
         KqpProxy = MakeKqpProxyID(Runtime->GetNodeId(0));
         Sender = Runtime->AllocateEdgeActor();
+
+        // Push an empty classifier snapshot into the WM state actor so ClassifierMetadataInitialized_
+        // becomes true deterministically. Without this, the metadata provider may never emit a
+        // snapshot (empty .metadata tables in a fresh Tests::TServer), and EnsureReady stays Pending.
+        Runtime->Send(new IEventHandle(
+            NWorkloadManager::MakeServiceId(Runtime->GetNodeId(0)),
+            Sender,
+            new NMetadata::NProvider::TEvRefreshSubscriberData(
+                NWorkloadManager::MakeClassifierSnapshot({}))));
     }
 
     static Tests::TServerSettings BuildSettings(TPortManager& tp) {

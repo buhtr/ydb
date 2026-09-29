@@ -27,6 +27,7 @@ struct TFixture {
     std::shared_ptr<NPrivate::TWorkloadManagerGateway> Gateway;
     TActorId SchemeCacheEdge;
     TActorId ServicesEdge;
+    TActorId Sender;
     TActorId StateActor;
     ui32 NodeId = 0;
 
@@ -41,6 +42,7 @@ struct TFixture {
 
         SchemeCacheEdge = Runtime.AllocateEdgeActor();
         ServicesEdge = Runtime.AllocateEdgeActor();
+        Sender = Runtime.AllocateEdgeActor();
         Runtime.RegisterService(MakeSchemeCacheID(), SchemeCacheEdge);
         Runtime.RegisterService(NKqp::MakeKqpSchedulerServiceId(NodeId), ServicesEdge);
         Runtime.RegisterService(MakeServiceId(NodeId), ServicesEdge);
@@ -77,7 +79,7 @@ struct TFixture {
                              Ydb::StatusIds::StatusCode status = Ydb::StatusIds::SUCCESS,
                              NYql::TIssues issues = {}) {
         Runtime.Send(new IEventHandle(
-            StateActor, {},
+            StateActor, Sender,
             new TEvFetchDatabaseResponse(status, databasePath, databaseId, serverless, pathId, std::move(issues))));
     }
 };

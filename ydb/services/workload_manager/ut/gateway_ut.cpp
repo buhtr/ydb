@@ -66,8 +66,9 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         runtime.DispatchEvents(options);
 
         // Publish a known non-serverless entry so IsResourcePoolsEnabled(TEST_DB) is true.
+        const TActorId sender = runtime.AllocateEdgeActor();
         runtime.Send(new IEventHandle(
-            stateActor, {},
+            stateActor, sender,
             new TEvFetchDatabaseResponse(Ydb::StatusIds::SUCCESS, TEST_DB, TEST_DB, /*serverless=*/false, TPathId(1, 1), {})));
         auto watch = runtime.GrabEdgeEvent<TEvTxProxySchemeCache::TEvWatchPathId>(schemeCacheEdge, TDuration::Seconds(10));
         UNIT_ASSERT(watch);

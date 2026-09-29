@@ -67,7 +67,9 @@ TAutoPtr<NKqp::TEvKqp::TEvQueryRequest> MakeSelect42Query(const TString& databas
 }
 
 Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
-
+    ///
+    /// Test query is deferred until wlm replies ready for DB
+    ///
     Y_UNIT_TEST(KqpQueryDeferredUntilWlmReady) {
         TWlmFixture fx;
 
@@ -97,6 +99,9 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
                                     reply->Get()->Record.GetResponse().GetQueryIssues());
     }
 
+    ///
+    /// Test query fails when wlm replies with error for Db preparing
+    ///
     Y_UNIT_TEST(KqpQueryFailsWhenWlmFetchFails) {
         TWlmFixture fx;
 
@@ -122,6 +127,10 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
         UNIT_ASSERT_VALUES_EQUAL(reply->Get()->Record.GetYdbStatus(), Ydb::StatusIds::NOT_FOUND);
     }
 
+    ///
+    /// Test query runs after wlm replies with unsupported DB.
+    /// In this case query has to run but wlm will be skipped
+    ///
     Y_UNIT_TEST(KqpQuerySucceedsOnWlmUnsupportedDb) {
         TWlmFixture fx;
 
@@ -157,6 +166,9 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
                                     reply->Get()->Record.GetResponse().GetQueryIssues());
     }
 
+    ///
+    /// Test query sends a warmup to the wlm for an unknown db
+    ///
     Y_UNIT_TEST(KqpQuerySendsWlmWarmupOnEntry) {
         TWlmFixture fx;
 
@@ -176,6 +188,9 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
         UNIT_ASSERT_C(warmupCount > 0, "Expected TEvWarmupDatabaseInfo to be sent to the state actor");
     }
 
+    ///
+    /// Test query fails fast for DB which has error in the wlm
+    ///
     Y_UNIT_TEST(KqpQueryFailsFastOnCachedWlmFailure) {
         TWlmFixture fx;
 
@@ -229,6 +244,9 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
                                     "Second query should hit the sync-Failed path (no extra SubscribeOnReady)");
     }
 
+    ///
+    /// Test two parallel queries resume after wlm replies ready
+    ///
     Y_UNIT_TEST(KqpParallelQueriesResumeOnWlmReady) {
         TWlmFixture fx;
         const TActorId sender2 = fx.Runtime->AllocateEdgeActor();

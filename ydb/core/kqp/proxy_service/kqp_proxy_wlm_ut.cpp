@@ -9,8 +9,6 @@
 
 #include <library/cpp/testing/unittest/registar.h>
 
-#include <atomic>
-
 
 namespace NKikimr::NKqp {
 
@@ -31,22 +29,13 @@ struct TWlmFixture {
         , Server(new Tests::TServer(Settings))
     {
         Runtime = Server->GetRuntime();
-        Cerr << "[WLM_TEST_DBG] fixture ctor: TServer constructed" << Endl;
-
-        // Enable debug logs for the interesting subsystems.
-        Runtime->SetLogPriority(NKikimrServices::KQP_PROXY, NActors::NLog::PRI_DEBUG);
-        Runtime->SetLogPriority(NKikimrServices::KQP_WORKLOAD_SERVICE, NActors::NLog::PRI_DEBUG);
-        Runtime->SetLogPriority(NKikimrServices::METADATA_PROVIDER, NActors::NLog::PRI_DEBUG);
-        Runtime->SetLogPriority(NKikimrServices::KQP_SESSION, NActors::NLog::PRI_DEBUG);
-
         KqpProxy = MakeKqpProxyID(Runtime->GetNodeId(0));
         Sender = Runtime->AllocateEdgeActor();
-        Cerr << "[WLM_TEST_DBG] fixture ctor: KqpProxy=" << KqpProxy << " Sender=" << Sender << Endl;
 
-        // Belt-and-braces: NMetadata::NProvider::TServiceOperator is a process-wide singleton;
-        // if another test in the same binary already flipped it to enabled, state actor's Bootstrap
-        // will send TEvAskSnapshot to a non-existent metadata service (we disabled it above) and
-        // ClassifierMetadataInitialized_ never becomes true. Inject an empty snapshot to force it.
+        // NMetadata::NProvider::TServiceOperator is a process-wide singleton — if another test
+        // in the same binary already flipped it to enabled, our state actor Bootstrap would send
+        // TEvAskSnapshot into a metadata service that we disabled above, and
+        // ClassifierMetadataInitialized_ would never become true. Force it with an empty snapshot.
         Runtime->Send(new IEventHandle(
             NWorkloadManager::MakeServiceId(Runtime->GetNodeId(0)),
             Sender,
@@ -171,43 +160,107 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
     Y_UNIT_TEST(KqpQuerySendsWlmWarmupOnEntry) {
         TWlmFixture fx;
 
-        std::atomic<int> warmupCount = 0;
-        std::atomic<int> queryReqCount = 0;
-        std::atomic<int> queryRespCount = 0;
-        std::atomic<int> subscribeReadyCount = 0;
-        std::atomic<int> readyReplyCount = 0;
-        fx.Runtime->SetObserverFunc([&](TAutoPtr<IEventHandle>& ev) {
-            const auto t = ev->GetTypeRewrite();
-            if (t == NWorkloadManager::TEvWarmupDatabaseInfo::EventType) {
-                warmupCount.fetch_add(1);
-            } else if (t == NKqp::TEvKqp::TEvQueryRequest::EventType) {
-                queryReqCount.fetch_add(1);
-                Cerr << "[WLM_TEST_DBG] observe TEvQueryRequest -> " << ev->GetRecipientRewrite() << Endl;
-            } else if (t == NKqp::TEvKqp::TEvQueryResponse::EventType) {
-                queryRespCount.fetch_add(1);
-                Cerr << "[WLM_TEST_DBG] observe TEvQueryResponse -> " << ev->GetRecipientRewrite() << Endl;
-            } else if (t == NWorkloadManager::TEvSubscribeOnWorkloadManagerReady::EventType) {
-                subscribeReadyCount.fetch_add(1);
-                Cerr << "[WLM_TEST_DBG] observe TEvSubscribeOnWorkloadManagerReady" << Endl;
-            } else if (t == NWorkloadManager::TEvWorkloadManagerReady::EventType) {
-                readyReplyCount.fetch_add(1);
-                Cerr << "[WLM_TEST_DBG] observe TEvWorkloadManagerReady" << Endl;
+        int warmupCount = 0;
+        fx.Runtime->SetObserverFunc([&warmupCount](TAutoPtr<IEventHandle>& ev) {
+            if (ev->GetTypeRewrite() == NWorkloadManager::TEvWarmupDatabaseInfo::EventType) {
+                ++warmupCount;
             }
             return TTestActorRuntime::EEventAction::PROCESS;
         });
 
-        Cerr << "[WLM_TEST_DBG] test: sending TEvQueryRequest" << Endl;
         fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
-        Cerr << "[WLM_TEST_DBG] test: waiting for TEvQueryResponse" << Endl;
         auto reply = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
-        Cerr << "[WLM_TEST_DBG] test: got response, status=" << reply->Get()->Record.GetYdbStatus()
-             << " warmupCount=" << warmupCount.load()
-             << " subscribeReadyCount=" << subscribeReadyCount.load()
-             << " readyReplyCount=" << readyReplyCount.load() << Endl;
         UNIT_ASSERT_VALUES_EQUAL_C(reply->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
                                     reply->Get()->Record.GetResponse().GetQueryIssues());
 
-        UNIT_ASSERT_C(warmupCount.load() > 0, "Expected TEvWarmupDatabaseInfo to be sent to the state actor");
+        UNIT_ASSERT_C(warmupCount > 0, "Expected TEvWarmupDatabaseInfo to be sent to the state actor");
+    }
+
+    Y_UNIT_TEST(KqpQueryFailsFastOnCachedWlmFailure) {
+        TWlmFixture fx;
+
+        // Every real SUCCESS fetch response is rewritten to NOT_FOUND — state actor caches the
+        // failure in DatabasesCache_ with FetchStatus=NOT_FOUND.
+        fx.Runtime->SetEventFilter([runtime = fx.Runtime](TTestActorRuntimeBase&, TAutoPtr<IEventHandle>& ev) -> bool {
+            if (ev->GetTypeRewrite() != NWorkloadManager::TEvFetchDatabaseResponse::EventType) {
+                return false;
+            }
+            const auto* original = ev->Get<NWorkloadManager::TEvFetchDatabaseResponse>();
+            if (original->Status != Ydb::StatusIds::SUCCESS) {
+                return false;
+            }
+            NYql::TIssues issues;
+            issues.AddIssue(NYql::TIssue("simulated: DB not found"));
+            auto* replacement = new NWorkloadManager::TEvFetchDatabaseResponse(
+                Ydb::StatusIds::NOT_FOUND,
+                original->Database,
+                original->DatabaseId,
+                /*serverless=*/false,
+                original->PathId,
+                std::move(issues));
+            runtime->Send(new IEventHandle(ev->Recipient, ev->Sender, replacement, 0, ev->Cookie));
+            return true;
+        });
+
+        // Count SubscribeOnReady to distinguish the park path from the sync-Failed path.
+        int subscribes = 0;
+        fx.Runtime->SetObserverFunc([&subscribes](TAutoPtr<IEventHandle>& ev) {
+            if (ev->GetTypeRewrite() == NWorkloadManager::TEvSubscribeOnWorkloadManagerReady::EventType) {
+                ++subscribes;
+            }
+            return TTestActorRuntime::EEventAction::PROCESS;
+        });
+
+        // First query: EnsureReady returns Pending, proxy parks, state actor's failed fetch
+        // notifies subscribers, proxy routes NOT_FOUND to the client via TEvDelayedRequestError.
+        fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
+        auto reply1 = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
+        UNIT_ASSERT_VALUES_EQUAL(reply1->Get()->Record.GetYdbStatus(), Ydb::StatusIds::NOT_FOUND);
+        const int subscribesAfterFirst = subscribes;
+        UNIT_ASSERT_C(subscribesAfterFirst >= 1, "First query should have taken the park path");
+
+        // Second query for the same DB: state actor's snapshot has FetchStatus=NOT_FOUND,
+        // EnsureReady returns Failed synchronously — proxy replies via TEvDelayedRequestError
+        // without calling SubscribeOnReady again.
+        fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
+        auto reply2 = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
+        UNIT_ASSERT_VALUES_EQUAL(reply2->Get()->Record.GetYdbStatus(), Ydb::StatusIds::NOT_FOUND);
+        UNIT_ASSERT_VALUES_EQUAL_C(subscribes, subscribesAfterFirst,
+                                    "Second query should hit the sync-Failed path (no extra SubscribeOnReady)");
+    }
+
+    Y_UNIT_TEST(KqpParallelQueriesResumeOnWlmReady) {
+        TWlmFixture fx;
+        const TActorId sender2 = fx.Runtime->AllocateEdgeActor();
+
+        std::vector<TAutoPtr<IEventHandle>> held;
+        fx.Runtime->SetEventFilter([&held](TTestActorRuntimeBase&, TAutoPtr<IEventHandle>& ev) -> bool {
+            if (ev->GetTypeRewrite() == NWorkloadManager::TEvWorkloadManagerReady::EventType) {
+                held.push_back(ev.Release());
+                return true;
+            }
+            return false;
+        });
+
+        fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
+        fx.Runtime->Send(new IEventHandle(fx.KqpProxy, sender2, MakeSelect42Query("/Root").Release()));
+
+        TDispatchOptions opts;
+        opts.FinalEvents.emplace_back([&held](IEventHandle&) { return held.size() >= 2; });
+        fx.Runtime->DispatchEvents(opts);
+        UNIT_ASSERT_C(held.size() >= 2, "Expected both queries to be parked and both TEvWorkloadManagerReady captured");
+
+        fx.Runtime->SetEventFilter([](TTestActorRuntimeBase&, TAutoPtr<IEventHandle>&) { return false; });
+        for (auto& e : held) {
+            fx.Runtime->Send(e.Release());
+        }
+
+        auto reply1 = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
+        UNIT_ASSERT_VALUES_EQUAL_C(reply1->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
+                                    reply1->Get()->Record.GetResponse().GetQueryIssues());
+        auto reply2 = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(sender2);
+        UNIT_ASSERT_VALUES_EQUAL_C(reply2->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
+                                    reply2->Get()->Record.GetResponse().GetQueryIssues());
     }
 
 }

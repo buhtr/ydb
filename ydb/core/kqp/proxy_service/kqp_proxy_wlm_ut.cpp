@@ -22,7 +22,6 @@ struct TWlmFixture {
     TPortManager PortManager;
     Tests::TServerSettings Settings;
     Tests::TServer::TPtr Server;
-    Tests::TClient Client;
     TTestActorRuntime* Runtime = nullptr;
     TActorId KqpProxy;
     TActorId Sender;
@@ -30,12 +29,9 @@ struct TWlmFixture {
     TWlmFixture()
         : Settings(BuildSettings(PortManager))
         , Server(new Tests::TServer(Settings))
-        , Client(Settings)
     {
-        Cerr << "[WLM_TEST_DBG] fixture ctor: after TServer + TClient construction" << Endl;
-        Client.InitRootScheme();
         Runtime = Server->GetRuntime();
-        Cerr << "[WLM_TEST_DBG] fixture ctor: InitRootScheme done" << Endl;
+        Cerr << "[WLM_TEST_DBG] fixture ctor: TServer constructed" << Endl;
 
         // Enable debug logs for the interesting subsystems.
         Runtime->SetLogPriority(NKikimrServices::KQP_PROXY, NActors::NLog::PRI_DEBUG);

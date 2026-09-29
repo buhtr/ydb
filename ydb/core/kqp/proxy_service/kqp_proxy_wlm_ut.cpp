@@ -59,10 +59,10 @@ struct TWlmFixture {
 TAutoPtr<NKqp::TEvKqp::TEvQueryRequest> MakeSelect42Query(const TString& database) {
     auto ev = MakeHolder<NKqp::TEvKqp::TEvQueryRequest>();
     ev->Record.MutableRequest()->SetAction(NKikimrKqp::QUERY_ACTION_EXECUTE);
-    ev->Record.MutableRequest()->SetType(NKikimrKqp::QUERY_TYPE_SQL_GENERIC_QUERY);
-    ev->Record.MutableRequest()->SetQuery("SELECT 42;");
+    ev->Record.MutableRequest()->SetType(NKikimrKqp::QUERY_TYPE_SQL_SCRIPT);
+    ev->Record.MutableRequest()->SetQuery("SELECT 42; COMMIT;");
     ev->Record.MutableRequest()->SetDatabase(database);
-    ev->Record.MutableRequest()->SetKeepSession(false);
+    ev->Record.MutableRequest()->SetKeepSession(true);
     ev->Record.MutableRequest()->SetTimeoutMs(30000);
     return ev.Release();
 }

@@ -64,10 +64,28 @@ std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQu
         *AppData());
 }
 
+void NPrivate::TWorkloadManagerGateway::DoWarmupRequest(const TString& databaseId) {
+    if (!StateActorId_) {
+        return;
+    }
+
+    NActors::TActivationContext::Send(new NActors::IEventHandle(
+        StateActorId_, {}, new TEvWarmupDatabaseInfo(DatabaseIdToDatabase(databaseId))));
+}
+
 TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databaseId) {
     TSnapshotPtr snapshot = Snapshot_;
 
-    if (!snapshot || !snapshot->EnableResourcePools) {
+    if (!snapshot) {
+        if (!StateActorId_) {
+            return TReadyInfo{.State = EReadyState::ClassificationDisabled};
+        }
+
+        DoWarmupRequest(databaseId);
+        return TReadyInfo{.State = EReadyState::Pending};
+    }
+
+    if (!snapshot->EnableResourcePools) {
         return TReadyInfo{.State = EReadyState::ClassificationDisabled};
     }
 
@@ -88,10 +106,7 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
         }
     }
 
-    if (StateActorId_) {
-        NActors::TActivationContext::Send(new NActors::IEventHandle(
-            StateActorId_, {}, new TEvWarmupDatabaseInfo(DatabaseIdToDatabase(databaseId))));
-    }
+    DoWarmupRequest(databaseId);
     return TReadyInfo{.State = EReadyState::Pending};
 }
 

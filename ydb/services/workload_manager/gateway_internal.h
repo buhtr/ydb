@@ -82,6 +82,8 @@ public:
     }
 
 private:
+    void DoWarmupRequest(const TString& databaseId);
+
     TSnapshotPtr Snapshot_;
     NActors::TActorId StateActorId_;
 };

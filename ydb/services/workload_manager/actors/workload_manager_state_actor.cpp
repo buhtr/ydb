@@ -222,11 +222,23 @@ private:
         IgnoreFunc(TEvTxProxySchemeCache::TEvWatchNotifyUpdated);
         IgnoreFunc(TEvTxProxySchemeCache::TEvWatchNotifyUnavailable);
         sFunc(TEvents::TEvPoison, PassAway);
-        IgnoreFunc(TEvents::TEvUndelivered);
+        hFunc(TEvents::TEvUndelivered, Handle);
     )
 
     void HandleSetConfigSubscriptionResponse() const {
         LOG_D("State actor subscribed for config changes");
+    }
+
+    void Handle(TEvents::TEvUndelivered::TPtr& ev) {
+        switch (ev->Get()->SourceType) {
+            case NConsole::TEvConfigsDispatcher::EvSetConfigSubscriptionRequest:
+                LOG_C("Failed to deliver config subscription request to configs dispatcher; "
+                      "workload manager state actor will run with stale flags");
+                break;
+            default:
+                LOG_W("Undelivered event, SourceType: " << ev->Get()->SourceType);
+                break;
+        }
     }
 
     void Handle(NConsole::TEvConsole::TEvConfigNotificationRequest::TPtr& ev) {

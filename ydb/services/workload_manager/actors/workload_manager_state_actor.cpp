@@ -189,10 +189,7 @@ public:
         RecomputeFlags();
         UpdateResourcePoolClassifiersSubscription();
 
-        const bool metadataOperatorEnabled = NMetadata::NProvider::TServiceOperator::IsEnabled();
-        Cerr << "[WM_STATE_ACTOR_DEBUG] Bootstrap: TServiceOperator::IsEnabled()=" << metadataOperatorEnabled
-             << " EnableResourcePools_=" << EnableResourcePools_ << Endl;
-        if (!metadataOperatorEnabled) {
+        if (!NMetadata::NProvider::TServiceOperator::IsEnabled()) {
             ClassifierMetadataInitialized_ = true;
         } else if (EnableResourcePools_) {
             Send(NMetadata::NProvider::MakeServiceId(SelfId().NodeId()),

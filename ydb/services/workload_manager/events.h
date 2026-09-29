@@ -28,12 +28,23 @@ struct TWorkloadManagerEvents {
         EvWarmupDatabaseInfo,
         EvSubscribeOnWorkloadManagerReady,
         EvWorkloadManagerReady,
+        EvEnsurePoolSubscribed,
     };
 };
 
 
 struct TEvSubscribeOnPoolChanges : public NActors::TEventLocal<TEvSubscribeOnPoolChanges, TWorkloadManagerEvents::EvSubscribeOnPoolChanges> {
     TEvSubscribeOnPoolChanges(const TString& databaseId, const TString& poolId)
+        : DatabaseId(databaseId)
+        , PoolId(poolId)
+    {}
+
+    const TString DatabaseId;
+    const TString PoolId;
+};
+
+struct TEvEnsurePoolSubscribed : public NActors::TEventLocal<TEvEnsurePoolSubscribed, TWorkloadManagerEvents::EvEnsurePoolSubscribed> {
+    TEvEnsurePoolSubscribed(const TString& databaseId, const TString& poolId)
         : DatabaseId(databaseId)
         , PoolId(poolId)
     {}

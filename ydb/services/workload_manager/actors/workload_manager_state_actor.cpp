@@ -45,15 +45,9 @@ std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQu
         : NResourcePool::DEFAULT_POOL_ID;
 
     if (!snapshot->Pools || !snapshot->Pools->contains(GetPoolKey(databaseId, effectivePoolId))) {
-        const ui32 nodeId = StateActorId_.NodeId();
         NActors::TActivationContext::Send(new NActors::IEventHandle(
-            NKqp::MakeKqpSchedulerServiceId(nodeId),
-            StateActorId_,
-            new NKqp::NScheduler::TEvAddPool(databaseId, effectivePoolId)));
-        NActors::TActivationContext::Send(new NActors::IEventHandle(
-            MakeServiceId(nodeId),
-            StateActorId_,
-            new TEvSubscribeOnPoolChanges(databaseId, effectivePoolId)));
+            StateActorId_, {},
+            new TEvEnsurePoolSubscribed(databaseId, effectivePoolId)));
     }
 
     return CreateQueryClassifier(
@@ -219,6 +213,7 @@ private:
         sFunc(NConsole::TEvConfigsDispatcher::TEvSetConfigSubscriptionResponse, HandleSetConfigSubscriptionResponse);
         hFunc(NConsole::TEvConsole::TEvConfigNotificationRequest, Handle);
         hFunc(TEvUpdatePoolInfo, Handle);
+        hFunc(TEvEnsurePoolSubscribed, Handle);
         hFunc(NMetadata::NProvider::TEvRefreshSubscriberData, Handle);
         hFunc(TEvWarmupDatabaseInfo, Handle);
         hFunc(TEvSubscribeOnWorkloadManagerReady, Handle);
@@ -248,7 +243,12 @@ private:
 
     void Handle(TEvUpdatePoolInfo::TPtr& ev) {
         UpdatePoolInfo(ev->Get()->DatabaseId, ev->Get()->PoolId, ev->Get()->Config, ev->Get()->SecurityObject);
+        InFlightPoolFetches_.erase(GetPoolKey(ev->Get()->DatabaseId, ev->Get()->PoolId));
         Rebuild();
+    }
+
+    void Handle(TEvEnsurePoolSubscribed::TPtr& ev) {
+        EnsurePoolSubscribed(ev->Get()->DatabaseId, ev->Get()->PoolId);
     }
 
     void Handle(NMetadata::NProvider::TEvRefreshSubscriberData::TPtr& ev) {
@@ -428,7 +428,9 @@ private:
                 PoolsCache_.erase(it);
             } else {
                 it->second.Expired = true;
-                Send(MakeServiceId(SelfId().NodeId()), new TEvSubscribeOnPoolChanges(databaseId, poolId));
+                if (InFlightPoolFetches_.insert(poolKey).second) {
+                    Send(MakeServiceId(SelfId().NodeId()), new TEvSubscribeOnPoolChanges(databaseId, poolId));
+                }
             }
             return;
         }
@@ -439,23 +441,29 @@ private:
         poolInfo.Expired = false;
     }
 
+    void EnsurePoolSubscribed(const TString& databaseId, const TString& poolId) {
+        const TString& poolKey = GetPoolKey(databaseId, poolId);
+        if (auto it = PoolsCache_.find(poolKey); it != PoolsCache_.end() && !it->second.Expired) {
+            return;
+        }
+        if (!InFlightPoolFetches_.insert(poolKey).second) {
+            return;
+        }
+        Send(NKqp::MakeKqpSchedulerServiceId(SelfId().NodeId()),
+             new NKqp::NScheduler::TEvAddPool(databaseId, poolId));
+        Send(MakeServiceId(SelfId().NodeId()),
+             new TEvSubscribeOnPoolChanges(databaseId, poolId));
+    }
+
     void PreSubscribeOnClassifierPools() {
         if (!LastClassifierSnapshot_) {
             return;
         }
         for (const auto& [databaseId, info] : LastClassifierSnapshot_->GetResourcePoolClassifierConfigs()) {
             for (const auto& [_, classifier] : info.ByName) {
-                const auto& poolId = classifier.GetClassifierSettings().ResourcePool;
-                if (!poolId) {
-                    continue;
+                if (const auto& poolId = classifier.GetClassifierSettings().ResourcePool) {
+                    EnsurePoolSubscribed(databaseId, *poolId);
                 }
-                if (PoolsCache_.contains(GetPoolKey(databaseId, *poolId))) {
-                    continue;
-                }
-                Send(NKqp::MakeKqpSchedulerServiceId(SelfId().NodeId()),
-                     new NKqp::NScheduler::TEvAddPool(databaseId, *poolId));
-                Send(MakeServiceId(SelfId().NodeId()),
-                     new TEvSubscribeOnPoolChanges(databaseId, *poolId));
             }
         }
     }
@@ -523,6 +531,7 @@ private:
 
 private:
     std::unordered_map<TString, TPoolInfo> PoolsCache_;
+    std::unordered_set<TString> InFlightPoolFetches_;
     std::unordered_map<TString, TDatabaseEntry> DatabasesCache_;
     std::unordered_map<TString, TString> PathToId_;
     std::unordered_map<ui32, TString> WatchKeyToDbId_;

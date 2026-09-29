@@ -16,11 +16,8 @@ namespace NKikimr::NWorkloadManager::NPrivate {
 
 struct TDatabaseInfo {
     bool Serverless = false;
-};
-
-struct TFailureInfo {
-    Ydb::StatusIds::StatusCode Status = Ydb::StatusIds::SUCCESS;
-    TString Message;
+    Ydb::StatusIds::StatusCode FetchStatus = Ydb::StatusIds::SUCCESS;
+    TString FetchMessage;
 };
 
 ///
@@ -30,7 +27,6 @@ struct TSnapshot {
     TResourcePoolMapPtr Pools;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> Classifiers;
     THashMap<TString, TDatabaseInfo> Databases;
-    THashMap<TString, TFailureInfo> FailedDatabases;
     bool EnableResourcePools = false;
     bool EnableResourcePoolsOnServerless = false;
     bool ClassifierMetadataInitialized = false;
@@ -39,11 +35,14 @@ struct TSnapshot {
         if (!EnableResourcePools) {
             return false;
         }
-        if (EnableResourcePoolsOnServerless) {
-            return true;
-        }
         const auto it = Databases.find(databaseId);
-        return it == Databases.end() || !it->second.Serverless;
+        if (it == Databases.end()) {
+            return EnableResourcePoolsOnServerless;  // unknown DB assumed non-serverless
+        }
+        if (it->second.FetchStatus != Ydb::StatusIds::SUCCESS) {
+            return false;
+        }
+        return EnableResourcePoolsOnServerless || !it->second.Serverless;
     }
 };
 

@@ -71,13 +71,16 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
         return TReadyInfo{.State = EReadyState::ClassificationDisabled};
     }
 
-    if (const auto it = snapshot->FailedDatabases.find(databaseId); it != snapshot->FailedDatabases.end()) {
-        return TReadyInfo{.State = EReadyState::Failed, .FailureStatus = it->second.Status, .FailureMessage = it->second.Message};
-    }
-
     const auto it = snapshot->Databases.find(databaseId);
     if (it != snapshot->Databases.end()) {
-        if (!snapshot->EnableResourcePoolsOnServerless && it->second.Serverless) {
+        const auto& info = it->second;
+        if (info.FetchStatus == Ydb::StatusIds::UNSUPPORTED) {
+            return TReadyInfo{.State = EReadyState::ClassificationDisabled};
+        }
+        if (info.FetchStatus != Ydb::StatusIds::SUCCESS) {
+            return TReadyInfo{.State = EReadyState::Failed, .FailureStatus = info.FetchStatus, .FailureMessage = info.FetchMessage};
+        }
+        if (!snapshot->EnableResourcePoolsOnServerless && info.Serverless) {
             return TReadyInfo{.State = EReadyState::ClassificationDisabled};
         }
         if (snapshot->ClassifierMetadataInitialized) {
@@ -138,6 +141,8 @@ class TWorkloadManagerStateActor : public TActorBootstrapped<TWorkloadManagerSta
 
     struct TDatabaseEntry {
         bool Serverless = false;
+        Ydb::StatusIds::StatusCode FetchStatus = Ydb::StatusIds::SUCCESS;
+        TString FetchMessage;
         TPathId PathId;
         ui32 WatchKey = 0;
     };
@@ -262,14 +267,23 @@ private:
         const TActorId subscriber = ev->Get()->Subscriber;
         const ui64 cookie = ev->Get()->Cookie;
 
-        if (const auto it = FailedDatabases_.find(databaseId); it != FailedDatabases_.end()) {
-            Send(subscriber, new TEvWorkloadManagerReady(cookie, it->second.Status, it->second.Message));
-            return;
-        }
+        if (const auto it = DatabasesCache_.find(databaseId); it != DatabasesCache_.end()) {
+            const auto& entry = it->second;
 
-        if (DatabasesCache_.contains(databaseId) && ClassifierMetadataInitialized_) {
-            Send(subscriber, new TEvWorkloadManagerReady(cookie, Ydb::StatusIds::SUCCESS));
-            return;
+            if (entry.FetchStatus == Ydb::StatusIds::UNSUPPORTED) {
+                Send(subscriber, new TEvWorkloadManagerReady(cookie, Ydb::StatusIds::SUCCESS));
+                return;
+            }
+
+            if (entry.FetchStatus != Ydb::StatusIds::SUCCESS) {
+                Send(subscriber, new TEvWorkloadManagerReady(cookie, entry.FetchStatus, entry.FetchMessage));
+                return;
+            }
+
+            if (ClassifierMetadataInitialized_) {
+                Send(subscriber, new TEvWorkloadManagerReady(cookie, Ydb::StatusIds::SUCCESS));
+                return;
+            }
         }
 
         PendingSubscribers_[databaseId].push_back(TPendingSubscriber{subscriber, cookie});
@@ -292,8 +306,17 @@ private:
         if (msg->Status != Ydb::StatusIds::SUCCESS) {
             const TString message = msg->Issues.ToOneLineString();
             LOG_W("Failed to fetch database info, path: " << path << ", status: " << msg->Status << ", issues: " << message);
-            FailedDatabases_[msg->DatabaseId] = NPrivate::TFailureInfo{msg->Status, message};
-            NotifyPendingSubscribersForPath(path, msg->Status, message);
+            auto& entry = DatabasesCache_[msg->DatabaseId];
+            entry.Serverless = false;
+            entry.FetchStatus = msg->Status;
+            entry.FetchMessage = message;
+            entry.PathId = {};
+            const bool unsupported = msg->Status == Ydb::StatusIds::UNSUPPORTED;
+            NotifyPendingSubscribersForPath(
+                path,
+                unsupported ? Ydb::StatusIds::SUCCESS : msg->Status,
+                unsupported ? TString{} : message
+            );
             Rebuild();
             return;
         }
@@ -303,10 +326,10 @@ private:
             << ", Serverless: " << msg->Serverless
             << ", PathId: " << msg->PathId);
 
-        FailedDatabases_.erase(msg->DatabaseId);
-
         auto& entry = DatabasesCache_[msg->DatabaseId];
         entry.Serverless = msg->Serverless;
+        entry.FetchStatus = Ydb::StatusIds::SUCCESS;
+        entry.FetchMessage.clear();
         entry.PathId = msg->PathId;
         if (!entry.WatchKey) {
             entry.WatchKey = ++FreeWatchKey_;
@@ -338,7 +361,6 @@ private:
         Send(MakeSchemeCacheID(), new TEvTxProxySchemeCache::TEvWatchRemove(watchKey));
         DatabasesCache_.erase(dbId);
         PathToId_.erase(path);
-        FailedDatabases_.erase(dbId);
         Rebuild();
     }
 
@@ -468,9 +490,12 @@ private:
         snapshot->Pools = BuildResourcePoolMapSnapshot();
         snapshot->Classifiers = LastClassifierSnapshot_;
         for (const auto& [databaseId, entry] : DatabasesCache_) {
-            snapshot->Databases[databaseId] = NPrivate::TDatabaseInfo{.Serverless = entry.Serverless};
+            snapshot->Databases[databaseId] = NPrivate::TDatabaseInfo{
+                .Serverless = entry.Serverless,
+                .FetchStatus = entry.FetchStatus,
+                .FetchMessage = entry.FetchMessage,
+            };
         }
-        snapshot->FailedDatabases = FailedDatabases_;
         snapshot->EnableResourcePools = EnableResourcePools_;
         snapshot->EnableResourcePoolsOnServerless = EnableResourcePoolsOnServerless_;
         snapshot->ClassifierMetadataInitialized = ClassifierMetadataInitialized_;
@@ -488,7 +513,6 @@ private:
     std::unordered_map<ui32, TString> WatchKeyToDbId_;
     std::unordered_map<TString, std::vector<TPendingSubscriber>> PendingSubscribers_;
     std::unordered_set<TString> InFlightFetchesByPath_;
-    THashMap<TString, NPrivate::TFailureInfo> FailedDatabases_;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> LastClassifierSnapshot_;
     NKikimrConfig::TFeatureFlags FeatureFlags_;
     NKikimrConfig::TWorkloadManagerConfig WorkloadManagerConfig_;

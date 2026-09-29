@@ -42,6 +42,16 @@ struct TWlmFixture {
         KqpProxy = MakeKqpProxyID(Runtime->GetNodeId(0));
         Sender = Runtime->AllocateEdgeActor();
         Cerr << "[WLM_TEST_DBG] fixture ctor: KqpProxy=" << KqpProxy << " Sender=" << Sender << Endl;
+
+        // Belt-and-braces: NMetadata::NProvider::TServiceOperator is a process-wide singleton;
+        // if another test in the same binary already flipped it to enabled, state actor's Bootstrap
+        // will send TEvAskSnapshot to a non-existent metadata service (we disabled it above) and
+        // ClassifierMetadataInitialized_ never becomes true. Inject an empty snapshot to force it.
+        Runtime->Send(new IEventHandle(
+            NWorkloadManager::MakeServiceId(Runtime->GetNodeId(0)),
+            Sender,
+            new NMetadata::NProvider::TEvRefreshSubscriberData(
+                NWorkloadManager::MakeClassifierSnapshot({}))));
     }
 
     static Tests::TServerSettings BuildSettings(TPortManager& tp) {
@@ -126,19 +136,33 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
     Y_UNIT_TEST(KqpQuerySucceedsOnWlmUnsupportedDb) {
         TWlmFixture fx;
 
-        {
-            auto createEv = MakeHolder<NKqp::TEvKqp::TEvQueryRequest>();
-            createEv->Record.MutableRequest()->SetAction(NKikimrKqp::QUERY_ACTION_EXECUTE);
-            createEv->Record.MutableRequest()->SetType(NKikimrKqp::QUERY_TYPE_SQL_DDL);
-            createEv->Record.MutableRequest()->SetQuery("CREATE TABLE `/Root/tbl` (Key Int32, PRIMARY KEY (Key));");
-            createEv->Record.MutableRequest()->SetDatabase("/Root");
-            fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, createEv.Release()));
-            auto ack = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
-            UNIT_ASSERT_VALUES_EQUAL_C(ack->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
-                                        ack->Get()->Record.GetResponse().GetQueryIssues());
-        }
+        // Rewrite the successful fetch response from the DB fetcher to UNSUPPORTED — mimics
+        // "path exists but isn't a subdomain" (e.g. a table). State actor will record it in
+        // DatabasesCache_ with FetchStatus=UNSUPPORTED and notify subscribers with SUCCESS;
+        // proxy re-dispatches, EnsureReady answers ClassificationDisabled, query proceeds
+        // without a classifier and succeeds normally.
+        fx.Runtime->SetEventFilter([runtime = fx.Runtime](TTestActorRuntimeBase&, TAutoPtr<IEventHandle>& ev) -> bool {
+            if (ev->GetTypeRewrite() != NWorkloadManager::TEvFetchDatabaseResponse::EventType) {
+                return false;
+            }
+            const auto* original = ev->Get<NWorkloadManager::TEvFetchDatabaseResponse>();
+            if (original->Status != Ydb::StatusIds::SUCCESS) {
+                return false;
+            }
+            NYql::TIssues issues;
+            issues.AddIssue(NYql::TIssue("simulated: path is not a subdomain"));
+            auto* replacement = new NWorkloadManager::TEvFetchDatabaseResponse(
+                Ydb::StatusIds::UNSUPPORTED,
+                original->Database,
+                original->DatabaseId,
+                /*serverless=*/false,
+                original->PathId,
+                std::move(issues));
+            runtime->Send(new IEventHandle(ev->Recipient, ev->Sender, replacement, 0, ev->Cookie));
+            return true;
+        });
 
-        fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root/tbl").Release()));
+        fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
         auto reply = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
         UNIT_ASSERT_VALUES_EQUAL_C(reply->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
                                     reply->Get()->Record.GetResponse().GetQueryIssues());

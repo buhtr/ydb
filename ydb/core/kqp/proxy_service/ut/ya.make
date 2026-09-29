@@ -12,6 +12,7 @@ ENDIF()
 SRCS(
     kqp_kill_session_proxy_ut.cpp
     kqp_proxy_ut.cpp
+    kqp_proxy_wlm_ut.cpp
     kqp_script_executions_ut.cpp
 )
 

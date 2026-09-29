@@ -32,10 +32,20 @@ struct TWlmFixture {
         , Server(new Tests::TServer(Settings))
         , Client(Settings)
     {
+        Cerr << "[WLM_TEST_DBG] fixture ctor: after TServer + TClient construction" << Endl;
         Client.InitRootScheme();
         Runtime = Server->GetRuntime();
+        Cerr << "[WLM_TEST_DBG] fixture ctor: InitRootScheme done" << Endl;
+
+        // Enable debug logs for the interesting subsystems.
+        Runtime->SetLogPriority(NKikimrServices::KQP_PROXY, NActors::NLog::PRI_DEBUG);
+        Runtime->SetLogPriority(NKikimrServices::KQP_WORKLOAD_SERVICE, NActors::NLog::PRI_DEBUG);
+        Runtime->SetLogPriority(NKikimrServices::METADATA_PROVIDER, NActors::NLog::PRI_DEBUG);
+        Runtime->SetLogPriority(NKikimrServices::KQP_SESSION, NActors::NLog::PRI_DEBUG);
+
         KqpProxy = MakeKqpProxyID(Runtime->GetNodeId(0));
         Sender = Runtime->AllocateEdgeActor();
+        Cerr << "[WLM_TEST_DBG] fixture ctor: KqpProxy=" << KqpProxy << " Sender=" << Sender << Endl;
 
         // Push an empty classifier snapshot into the WM state actor so ClassifierMetadataInitialized_
         // becomes true deterministically. Without this, the metadata provider may never emit a
@@ -45,6 +55,7 @@ struct TWlmFixture {
             Sender,
             new NMetadata::NProvider::TEvRefreshSubscriberData(
                 NWorkloadManager::MakeClassifierSnapshot({}))));
+        Cerr << "[WLM_TEST_DBG] fixture ctor: TEvRefreshSubscriberData injected" << Endl;
     }
 
     static Tests::TServerSettings BuildSettings(TPortManager& tp) {
@@ -150,15 +161,38 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
         TWlmFixture fx;
 
         std::atomic<int> warmupCount = 0;
-        fx.Runtime->SetObserverFunc([&warmupCount](TAutoPtr<IEventHandle>& ev) {
-            if (ev->GetTypeRewrite() == NWorkloadManager::TEvWarmupDatabaseInfo::EventType) {
+        std::atomic<int> queryReqCount = 0;
+        std::atomic<int> queryRespCount = 0;
+        std::atomic<int> subscribeReadyCount = 0;
+        std::atomic<int> readyReplyCount = 0;
+        fx.Runtime->SetObserverFunc([&](TAutoPtr<IEventHandle>& ev) {
+            const auto t = ev->GetTypeRewrite();
+            if (t == NWorkloadManager::TEvWarmupDatabaseInfo::EventType) {
                 warmupCount.fetch_add(1);
+            } else if (t == NKqp::TEvKqp::TEvQueryRequest::EventType) {
+                queryReqCount.fetch_add(1);
+                Cerr << "[WLM_TEST_DBG] observe TEvQueryRequest -> " << ev->GetRecipientRewrite() << Endl;
+            } else if (t == NKqp::TEvKqp::TEvQueryResponse::EventType) {
+                queryRespCount.fetch_add(1);
+                Cerr << "[WLM_TEST_DBG] observe TEvQueryResponse -> " << ev->GetRecipientRewrite() << Endl;
+            } else if (t == NWorkloadManager::TEvSubscribeOnWorkloadManagerReady::EventType) {
+                subscribeReadyCount.fetch_add(1);
+                Cerr << "[WLM_TEST_DBG] observe TEvSubscribeOnWorkloadManagerReady" << Endl;
+            } else if (t == NWorkloadManager::TEvWorkloadManagerReady::EventType) {
+                readyReplyCount.fetch_add(1);
+                Cerr << "[WLM_TEST_DBG] observe TEvWorkloadManagerReady" << Endl;
             }
             return TTestActorRuntime::EEventAction::PROCESS;
         });
 
+        Cerr << "[WLM_TEST_DBG] test: sending TEvQueryRequest" << Endl;
         fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
+        Cerr << "[WLM_TEST_DBG] test: waiting for TEvQueryResponse" << Endl;
         auto reply = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
+        Cerr << "[WLM_TEST_DBG] test: got response, status=" << reply->Get()->Record.GetYdbStatus()
+             << " warmupCount=" << warmupCount.load()
+             << " subscribeReadyCount=" << subscribeReadyCount.load()
+             << " readyReplyCount=" << readyReplyCount.load() << Endl;
         UNIT_ASSERT_VALUES_EQUAL_C(reply->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
                                     reply->Get()->Record.GetResponse().GetQueryIssues());
 

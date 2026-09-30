@@ -268,8 +268,8 @@ private:
         if (!config) {
             auto it = PoolsCache_.find(poolKey);
             if (it == PoolsCache_.end()) {
-                // Unknown pool + nullopt signal: nothing to update. Don't touch any in-flight.
-                return false;
+                // Our own fetch returned "not found" — release the in-flight lock for future retries.
+                return true;
             }
             if (it->second.Expired) {
                 // Second nullopt confirms the pool is gone
@@ -443,6 +443,14 @@ private:
         Send(MakeSchemeCacheID(), new TEvTxProxySchemeCache::TEvWatchRemove(watchKey));
         DatabasesCache_.erase(dbId);
         PathToId_.erase(path);
+
+        if (auto subsIt = PendingSubscribers_.find(dbId); subsIt != PendingSubscribers_.end()) {
+            for (const auto& sub : subsIt->second) {
+                Send(sub.Actor, new TEvWorkloadManagerReady(sub.Cookie, Ydb::StatusIds::NOT_FOUND, "Database was deleted"));
+            }
+            PendingSubscribers_.erase(subsIt);
+        }
+
         Rebuild();
     }
 

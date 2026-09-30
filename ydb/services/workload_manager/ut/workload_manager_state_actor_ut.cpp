@@ -227,13 +227,13 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         TFixture fx;
         fx.Init();
 
-        // First EnsurePoolSubscribed fires TEvAddPool + TEvSubscribeOnPoolChanges.
+        // First EnsurePoolSubscribed fires TEvAddPool + TEvGetPoolInfo.
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, fx.Sender,
             new TEvEnsurePoolSubscribed("/Root/db1", "poolA")));
         auto firstAdd = fx.Runtime.GrabEdgeEvent<NKqp::NScheduler::TEvAddPool>(fx.ServicesEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_VALUES_EQUAL(firstAdd->Get()->PoolId, "poolA");
-        auto firstSub = fx.Runtime.GrabEdgeEvent<TEvSubscribeOnPoolChanges>(fx.ServicesEdge, WAIT_TIMEOUT);
+        auto firstSub = fx.Runtime.GrabEdgeEvent<TEvGetPoolInfo>(fx.ServicesEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_VALUES_EQUAL(firstSub->Get()->PoolId, "poolA");
 
         // Duplicate EnsurePoolSubscribed for the same key should be deduped;
@@ -248,9 +248,9 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         auto nextAdd = fx.Runtime.GrabEdgeEvent<NKqp::NScheduler::TEvAddPool>(fx.ServicesEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_VALUES_EQUAL_C(nextAdd->Get()->PoolId, "poolB",
                                     "Duplicate EnsurePoolSubscribed must not fire TEvAddPool");
-        auto nextSub = fx.Runtime.GrabEdgeEvent<TEvSubscribeOnPoolChanges>(fx.ServicesEdge, WAIT_TIMEOUT);
+        auto nextSub = fx.Runtime.GrabEdgeEvent<TEvGetPoolInfo>(fx.ServicesEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_VALUES_EQUAL_C(nextSub->Get()->PoolId, "poolB",
-                                    "Duplicate EnsurePoolSubscribed must not fire TEvSubscribeOnPoolChanges");
+                                    "Duplicate EnsurePoolSubscribed must not fire TEvGetPoolInfo");
     }
 
     Y_UNIT_TEST(TestExpiredPoolDedupsResubscribe) {
@@ -261,7 +261,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, fx.Sender,
             new TEvEnsurePoolSubscribed("/Root/db1", "poolA")));
-        fx.Runtime.GrabEdgeEvent<TEvSubscribeOnPoolChanges>(fx.ServicesEdge, WAIT_TIMEOUT);
+        fx.Runtime.GrabEdgeEvent<TEvGetPoolInfo>(fx.ServicesEdge, WAIT_TIMEOUT);
 
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, fx.Sender,
@@ -271,7 +271,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         fx.Runtime.Send(new IEventHandle(
             fx.StateActor, fx.Sender,
             new TEvUpdatePoolInfo("/Root/db1", "poolA", std::nullopt, std::nullopt)));
-        auto resub = fx.Runtime.GrabEdgeEvent<TEvSubscribeOnPoolChanges>(fx.ServicesEdge, WAIT_TIMEOUT);
+        auto resub = fx.Runtime.GrabEdgeEvent<TEvGetPoolInfo>(fx.ServicesEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_VALUES_EQUAL(resub->Get()->PoolId, "poolA");
 
         // Second deletion signal (or duplicate expiration) should not fire another
@@ -283,7 +283,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
             fx.StateActor, fx.Sender,
             new TEvEnsurePoolSubscribed("/Root/db1", "poolB")));
 
-        auto next = fx.Runtime.GrabEdgeEvent<TEvSubscribeOnPoolChanges>(fx.ServicesEdge, WAIT_TIMEOUT);
+        auto next = fx.Runtime.GrabEdgeEvent<TEvGetPoolInfo>(fx.ServicesEdge, WAIT_TIMEOUT);
         UNIT_ASSERT_VALUES_EQUAL_C(next->Get()->PoolId, "poolB",
                                     "Repeated deletion signals must not fire duplicate resubscribes");
     }

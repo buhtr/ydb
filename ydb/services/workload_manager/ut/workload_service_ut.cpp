@@ -957,6 +957,26 @@ Y_UNIT_TEST_SUITE(ResourcePoolsDdl) {
             ALTER RESOURCE POOL MyResourcePool
                 SET (TOTAL_CPU_LIMIT_PERCENT_PER_NODE = 20);
             )", EStatus::SCHEME_ERROR, "Invalid resource pool configuration, total_cpu_guarantee_percent_per_node is 30, that exceeds total_cpu_limit_percent_per_node in 20");
+
+        ydb->ExecuteSchemeQuery(R"(
+            CREATE RESOURCE POOL AnotherResourcePool WITH (
+                TOTAL_CPU_GUARANTEE_PERCENT_PER_NODE=80
+            );)", EStatus::SCHEME_ERROR, "total_cpu_guarantee_percent_per_node of all resource pools is 110, that exceeds 100");
+
+        ydb->ExecuteSchemeQuery(R"(
+            CREATE RESOURCE POOL AnotherResourcePool WITH (
+                TOTAL_CPU_GUARANTEE_PERCENT_PER_NODE=70
+            );)");
+
+        ydb->ExecuteSchemeQuery(R"(
+            ALTER RESOURCE POOL MyResourcePool
+                SET (TOTAL_CPU_GUARANTEE_PERCENT_PER_NODE = 40);
+            )", EStatus::SCHEME_ERROR, "total_cpu_guarantee_percent_per_node of all resource pools is 110, that exceeds 100");
+
+        ydb->ExecuteSchemeQuery(R"(
+            ALTER RESOURCE POOL MyResourcePool
+                SET (TOTAL_CPU_GUARANTEE_PERCENT_PER_NODE = 20);
+            )");
     }
 
     Y_UNIT_TEST(TestDoubleCreateResourcePool) {

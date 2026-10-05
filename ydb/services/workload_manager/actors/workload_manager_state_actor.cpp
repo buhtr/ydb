@@ -157,8 +157,12 @@ void NPrivate::TWorkloadManagerGateway::Warmup(const TString& databasePath) {
     if (!snapshot || !databasePath) {
         return;
     }
+    const TString path = CanonizePath(databasePath);
+    if (!snapshot->NeedsWarmup(path)) {
+        return;
+    }
     NActors::TActivationContext::Send(new NActors::IEventHandle(
-        snapshot->StateActorId, {}, new TEvWarmupDatabaseInfo(CanonizePath(databasePath))));
+        snapshot->StateActorId, {}, new TEvWarmupDatabaseInfo(path)));
 }
 
 namespace {

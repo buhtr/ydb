@@ -34,9 +34,11 @@ struct TGatewayFixture : public NUnitTest::TBaseFixture {
 
     void Publish(THashMap<TString, NPrivate::TDatabaseInfo> databases,
                  NPrivate::EMetadataState metadata = NPrivate::EMetadataState::Ready,
-                 bool enableResourcePools = true) {
+                 bool enableResourcePools = true,
+                 THashSet<TString> readyPaths = {}) {
         auto* snapshot = new NPrivate::TSnapshot();
         snapshot->Databases = std::move(databases);
+        snapshot->ReadyPaths = std::move(readyPaths);
         snapshot->StateActorId = StateActorEdge;
         snapshot->EnableResourcePools = enableResourcePools;
         snapshot->Metadata = metadata;
@@ -58,6 +60,13 @@ struct TGatewayFixture : public NUnitTest::TBaseFixture {
     std::shared_ptr<IQueryClassifier> TryCreateQueryClassifier(const TString& databaseId) {
         return Runtime.RunCall([databaseId] {
             return AppData()->WorkloadManagerGateway->TryCreateQueryClassifier(databaseId, MakeContext());
+        });
+    }
+
+    void Warmup(const TString& databasePath) {
+        Runtime.RunCall([databasePath] {
+            AppData()->WorkloadManagerGateway->Warmup(databasePath);
+            return 0;
         });
     }
 
@@ -208,6 +217,23 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         warmup = Runtime.GrabEdgeEvent<TEvWarmupDatabaseInfo>(StateActorEdge, TDuration::Seconds(10));
         UNIT_ASSERT(warmup);
         UNIT_ASSERT_VALUES_EQUAL(warmup->Get()->DatabasePath, "/Root/timedout");
+    }
+
+    // Warmup gating. The gateway:
+    // - sends nothing for a path whose database is Ready,
+    // - sends nothing while resource pools are off,
+    // - sends a warmup for any other path.
+    Y_UNIT_TEST_F(TestWarmupSkipsReadyDatabase, TGatewayFixture) {
+        Publish({}, NPrivate::EMetadataState::Ready, /*enableResourcePools=*/false);
+        Warmup("/Root/disabled");
+
+        Publish({}, NPrivate::EMetadataState::Ready, /*enableResourcePools=*/true, {"/Root/ready"});
+        Warmup("/Root/ready");
+        Warmup("/Root/other");
+
+        auto warmup = Runtime.GrabEdgeEvent<TEvWarmupDatabaseInfo>(StateActorEdge, TDuration::Seconds(10));
+        UNIT_ASSERT(warmup);
+        UNIT_ASSERT_VALUES_EQUAL(warmup->Get()->DatabasePath, "/Root/other");
     }
 }
 

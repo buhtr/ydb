@@ -85,7 +85,10 @@ public:
         EnabledResourcePools = AppData()->FeatureFlags.GetEnableResourcePools() || WorkloadManagerConfig.GetEnabled();
         EnabledResourcePoolsOnServerless = AppData()->FeatureFlags.GetEnableResourcePoolsOnServerless() || WorkloadManagerConfig.GetEnabled();
         EnableResourcePoolsCounters = AppData()->FeatureFlags.GetEnableResourcePoolsCounters();
-        InitializeWorkloadService();
+        StateActor = Register(CreateWorkloadManagerStateActor(Gateway));
+        if (EnabledResourcePools) {
+            InitializeWorkloadService();
+        }
     }
 
     void HandlePoison() {
@@ -558,7 +561,6 @@ private:
         ServiceInitialized = true;
 
         LOG_I("Started workload service initialization");
-        StateActor = Register(CreateWorkloadManagerStateActor(Gateway));
         Register(CreateCleanupTablesActor());
         RunNodeInfoRequest();
     }

@@ -74,7 +74,7 @@ public:
     /// Takes all subscribers regardless of state (pools disabled, actor shutdown).
     std::vector<TPendingSubscriber> TakeAllSubscribers();
 
-    /// Writes database states into the snapshot.
+    /// Writes database states and paths of Ready databases into the snapshot.
     void Fill(TSnapshot& snapshot) const;
 
 private:

@@ -7,6 +7,7 @@
 #include <library/cpp/threading/atomic_shared_ptr/atomic_shared_ptr.h>
 
 #include <util/generic/hash.h>
+#include <util/generic/hash_set.h>
 #include <util/generic/string.h>
 
 #include <memory>
@@ -42,6 +43,7 @@ struct TSnapshot {
     TResourcePoolMapPtr Pools;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> Classifiers;
     THashMap<TString, TDatabaseInfo> Databases;
+    THashSet<TString> ReadyPaths;
     NActors::TActorId StateActorId;
     bool EnableResourcePools = false;
     bool EnableResourcePoolsOnServerless = false;
@@ -59,6 +61,10 @@ struct TSnapshot {
             return false;
         }
         return EnableResourcePoolsOnServerless || !it->second.Serverless;
+    }
+
+    bool NeedsWarmup(const TString& databasePath) const {
+        return EnableResourcePools && !ReadyPaths.contains(databasePath);
     }
 };
 

@@ -164,6 +164,11 @@ void TDatabaseReadinessTracker::Fill(TSnapshot& snapshot) const {
             .FailureMessage = entry.FailureMessage,
         };
     }
+    for (const auto& [path, databaseId] : PathToId_) {
+        if (const auto it = Entries_.find(databaseId); it != Entries_.end() && it->second.State == EDatabaseState::Ready) {
+            snapshot.ReadyPaths.insert(path);
+        }
+    }
 }
 
 std::optional<TString> TDatabaseReadinessTracker::MarkFetchInFlight(const TString& path) {

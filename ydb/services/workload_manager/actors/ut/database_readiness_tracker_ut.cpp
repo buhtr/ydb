@@ -26,10 +26,14 @@ struct TDatabaseTrackerFixture : public NUnitTest::TBaseFixture {
         Tracker.OnFetchResult(path, path, status, message, false, now);
     }
 
-    THashMap<TString, TDatabaseInfo> Databases() const {
+    TSnapshot Snapshot() const {
         TSnapshot snapshot;
         Tracker.Fill(snapshot);
-        return snapshot.Databases;
+        return snapshot;
+    }
+
+    THashMap<TString, TDatabaseInfo> Databases() const {
+        return Snapshot().Databases;
     }
 
     EDatabaseState State(const TString& databaseId = DATABASE) const {
@@ -160,7 +164,8 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
 
     // Serverless database subscribed by its path before the composite id is known. On fetch success:
     // - subscribers move from the path entry to the composite id entry,
-    // - the path entry is removed.
+    // - the path entry is removed,
+    // - the path is published as ready.
     Y_UNIT_TEST_F(TestServerlessMergeStaleEntry, TDatabaseTrackerFixture) {
         const TString path = "/Root/serverless";
         const TString databaseId = "72075186224037891:2:/Root/serverless";
@@ -171,6 +176,7 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
         UNIT_ASSERT(!Contains(path));
         UNIT_ASSERT(State(databaseId) == EDatabaseState::Ready);
         UNIT_ASSERT(Databases().at(databaseId).Serverless);
+        UNIT_ASSERT(Snapshot().ReadyPaths.contains(path));
 
         const auto replies = TakeSettled();
         UNIT_ASSERT_VALUES_EQUAL(replies.size(), 1);

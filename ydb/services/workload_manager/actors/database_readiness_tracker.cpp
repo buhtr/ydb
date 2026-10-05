@@ -132,13 +132,21 @@ std::vector<TSubscriberReply> TDatabaseReadinessTracker::TakeSettledSubscribers(
         if (entry.Subscribers.empty() || !IsSettled(entry, metadata)) {
             continue;
         }
-        const bool failed = entry.State == EDatabaseState::Failed;
+        auto status = Ydb::StatusIds::SUCCESS;
+        TString message;
+        if (entry.State == EDatabaseState::Failed) {
+            status = entry.FailureStatus;
+            message = entry.FailureMessage;
+        } else if (entry.State == EDatabaseState::TimedOut || (entry.State == EDatabaseState::Ready && metadata == EMetadataState::TimedOut)) {
+            status = Ydb::StatusIds::UNAVAILABLE;
+            message = WORKLOAD_MANAGER_NOT_READY_MESSAGE;
+        }
         for (const auto& sub : entry.Subscribers) {
             replies.push_back(TSubscriberReply{
                 .Actor = sub.Actor,
                 .Cookie = sub.Cookie,
-                .Status = failed ? entry.FailureStatus : Ydb::StatusIds::SUCCESS,
-                .Message = failed ? entry.FailureMessage : TString{},
+                .Status = status,
+                .Message = message,
             });
         }
         entry.Subscribers.clear();

@@ -286,10 +286,10 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
     }
 
     ///
-    /// Test query proceeds without wlm when the db info fetch never completes:
-    /// the state actor times the fetch out and releases the parked query (Skip)
+    /// Test query fails with retryable UNAVAILABLE when the db info fetch never completes:
+    /// the state actor times the fetch out and releases the parked query, wlm is not bypassed
     ///
-    Y_UNIT_TEST(QueryProceedsWhenWlmFetchTimesOut) {
+    Y_UNIT_TEST(QueryFailsRetryablyWhenWlmFetchTimesOut) {
         TWlmFixture fx;
         const TActorId stateActor = fx.StateActorId();
 
@@ -302,7 +302,7 @@ Y_UNIT_TEST_SUITE(KqpProxyWorkloadManager) {
 
         fx.Runtime->Send(new IEventHandle(fx.KqpProxy, fx.Sender, MakeSelect42Query("/Root").Release()));
         auto reply = fx.Runtime->GrabEdgeEventRethrow<NKqp::TEvKqp::TEvQueryResponse>(fx.Sender);
-        UNIT_ASSERT_VALUES_EQUAL_C(reply->Get()->Record.GetYdbStatus(), Ydb::StatusIds::SUCCESS,
+        UNIT_ASSERT_VALUES_EQUAL_C(reply->Get()->Record.GetYdbStatus(), Ydb::StatusIds::UNAVAILABLE,
                                     reply->Get()->Record.GetResponse().GetQueryIssues());
     }
 

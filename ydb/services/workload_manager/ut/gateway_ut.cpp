@@ -150,7 +150,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
     // - Pending for an unknown or Pending database,
     // - Ready for a Ready database, Disabled for a serverless one,
     // - Failed with the fetch status for a Failed database,
-    // - Skip for TimedOut, Disabled for Unsupported.
+    // - Failed with retryable UNAVAILABLE for TimedOut, Disabled for Unsupported.
     Y_UNIT_TEST_F(TestEnsureReadyDatabaseStates, TGatewayFixture) {
         using EState = NPrivate::EDatabaseState;
         auto failed = DatabaseInfo(EState::Failed);
@@ -169,7 +169,9 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         UNIT_ASSERT(EnsureReady("/Root/pending").State == EReadyState::Pending);
         UNIT_ASSERT(EnsureReady("/Root/ready").State == EReadyState::Ready);
         UNIT_ASSERT(EnsureReady("/Root/serverless").State == EReadyState::Disabled);
-        UNIT_ASSERT(EnsureReady("/Root/timedout").State == EReadyState::Skip);
+        const auto timedOut = EnsureReady("/Root/timedout");
+        UNIT_ASSERT(timedOut.State == EReadyState::Failed);
+        UNIT_ASSERT_VALUES_EQUAL(timedOut.FailureStatus, Ydb::StatusIds::UNAVAILABLE);
         UNIT_ASSERT(EnsureReady("/Root/unsupported").State == EReadyState::Disabled);
 
         const auto info = EnsureReady("/Root/failed");
@@ -180,7 +182,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
 
     // Ready database, metadata state mapping. EnsureReady returns:
     // - Pending while metadata is Pending,
-    // - Skip once metadata timed out,
+    // - Failed with retryable UNAVAILABLE once metadata timed out,
     // - Disabled when resource pools are off, whatever the states.
     Y_UNIT_TEST_F(TestEnsureReadyMetadataStates, TGatewayFixture) {
         const THashMap<TString, NPrivate::TDatabaseInfo> databases = {
@@ -191,7 +193,9 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
         UNIT_ASSERT(EnsureReady("/Root/ready").State == EReadyState::Pending);
 
         Publish(databases, NPrivate::EMetadataState::TimedOut);
-        UNIT_ASSERT(EnsureReady("/Root/ready").State == EReadyState::Skip);
+        const auto timedOut = EnsureReady("/Root/ready");
+        UNIT_ASSERT(timedOut.State == EReadyState::Failed);
+        UNIT_ASSERT_VALUES_EQUAL(timedOut.FailureStatus, Ydb::StatusIds::UNAVAILABLE);
 
         Publish(databases, NPrivate::EMetadataState::Ready, /*enableResourcePools=*/false);
         UNIT_ASSERT(EnsureReady("/Root/ready").State == EReadyState::Disabled);

@@ -112,7 +112,7 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
 
         case EDatabaseState::TimedOut:
             DoWarmupRequest(snapshot->StateActorId, databaseId);
-            return TReadyInfo{.State = EReadyState::Skip};
+            return TReadyInfo{.State = EReadyState::Failed, .FailureStatus = Ydb::StatusIds::UNAVAILABLE, .FailureMessage = TString(WORKLOAD_MANAGER_NOT_READY_MESSAGE)};
 
         case EDatabaseState::Ready:
             break;
@@ -131,7 +131,7 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
 
         case EMetadataState::TimedOut:
             DoWarmupRequest(snapshot->StateActorId, databaseId);
-            return TReadyInfo{.State = EReadyState::Skip};
+            return TReadyInfo{.State = EReadyState::Failed, .FailureStatus = Ydb::StatusIds::UNAVAILABLE, .FailureMessage = TString(WORKLOAD_MANAGER_NOT_READY_MESSAGE)};
     }
 
     return TReadyInfo{.State = EReadyState::Pending};
@@ -375,10 +375,10 @@ private:
         const TInstant now = TActivationContext::Now();
 
         if (DatabaseTracker_.TimeOutPending(now)) {
-            LOG_W("Database info request timed out, skipping workload manager");
+            LOG_W("Database info request timed out, waiting queries get retryable UNAVAILABLE");
         }
         if (MetadataTracker_.TimeOutPending(now)) {
-            LOG_W("Classifier metadata request timed out, skipping classification");
+            LOG_W("Classifier metadata request timed out, waiting queries get retryable UNAVAILABLE");
         }
         PublishAndReply();
 

@@ -15,11 +15,10 @@
 namespace NKikimr::NWorkloadManager {
 
 enum class EReadyState {
-    Ready,
-    Pending,
-    Disabled,
-    Failed,
-    Skip,
+    Ready,     // DB info and classifiers are known: classify and admit the query
+    Pending,   // state not known yet: wait via SubscribeOnReady
+    Disabled,  // WLM is off for the database by config (pools off, serverless, unsupported path): run without WLM
+    Failed,    // state could not be obtained (fetch error or timeout): reply with FailureStatus, retryable if UNAVAILABLE
 };
 
 struct TReadyInfo {
@@ -33,7 +32,9 @@ struct TReadyInfo {
 /// Instance is created at node initialization and stored in
 /// `AppData()->WorkloadManagerGateway`; consumers access it synchronously.
 /// Must be called from an actor handler (uses the activation context).
-/// Callers that can wait use SubscribeOnReady; callers that cannot (e.g. background tablet work) treat Pending as Skip.
+/// Callers that can wait use SubscribeOnReady; callers that cannot (e.g. background tablet work) retry later.
+/// The workload manager is never bypassed: if its state cannot be obtained in time, EnsureReady returns Failed (retryable).
+///
 /// TODO: classification context for non-query workloads (compaction, backup).
 ///
 class IGateway {
@@ -48,8 +49,6 @@ public:
         const TString& databaseId, TClassifyContext context) = 0;
 
     /// Check whether the workload manager is ready to classify queries for this database.
-    /// Skip means the wait for DB info / classifier metadata timed out; the caller should
-    /// proceed without waiting.
     [[nodiscard]] virtual TReadyInfo EnsureReady(const TString& databaseId) = 0;
 
     /// Subscribe to event when workload manager is ready to classify queries for

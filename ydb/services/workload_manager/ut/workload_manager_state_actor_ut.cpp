@@ -332,9 +332,9 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
     }
 
     // Database info fetch hangs. The state actor:
-    // - releases the subscriber with SUCCESS once the request times out,
-    // - publishes the database as TimedOut, so EnsureReady returns Skip.
-    Y_UNIT_TEST(TestSubscribeTimesOutToSkip) {
+    // - releases the subscriber with retryable UNAVAILABLE once the request times out,
+    // - publishes the database as TimedOut, so EnsureReady returns Failed with UNAVAILABLE.
+    Y_UNIT_TEST(TestSubscribeTimesOutToUnavailable) {
         TFixture fx;
         fx.Init();
 
@@ -346,10 +346,11 @@ Y_UNIT_TEST_SUITE(WorkloadManagerStateActor) {
         auto ready = fx.Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, WAIT_TIMEOUT);
         UNIT_ASSERT(ready);
         UNIT_ASSERT_VALUES_EQUAL(ready->Get()->Cookie, 11u);
-        UNIT_ASSERT_EQUAL(ready->Get()->Status, Ydb::StatusIds::SUCCESS);
+        UNIT_ASSERT_EQUAL(ready->Get()->Status, Ydb::StatusIds::UNAVAILABLE);
 
         auto info = fx.EnsureReady("/Root/db1");
-        UNIT_ASSERT(info.State == EReadyState::Skip);
+        UNIT_ASSERT(info.State == EReadyState::Failed);
+        UNIT_ASSERT_EQUAL(info.FailureStatus, Ydb::StatusIds::UNAVAILABLE);
     }
 
     // State actor stopped while a subscriber waits. The state actor:

@@ -54,7 +54,7 @@ public:
     std::optional<TString> OnWarmup(const TString& path, TInstant now);
 
     /// Applies a fetch result to all non-Ready entries of the path: Ready, Unsupported,
-    /// TimedOut for retryable errors (skip WLM, requery later) or Failed for other errors.
+    /// TimedOut for retryable errors (retryable UNAVAILABLE, requery later) or Failed for other errors.
     /// Returns true if the state changed.
     bool OnFetchResult(const TString& path, const TString& databaseId, Ydb::StatusIds::StatusCode status,
                        const TString& message, bool serverless, TInstant now);
@@ -68,7 +68,8 @@ public:
     /// True if any DB fetch is still Pending.
     bool HasPending() const;
 
-    /// Takes subscribers whose DB is settled given the metadata state; Failed carries its error.
+    /// Takes subscribers whose DB is settled given the metadata state; Failed carries its error,
+    /// TimedOut (DB or metadata) replies retryable UNAVAILABLE.
     std::vector<TSubscriberReply> TakeSettledSubscribers(EMetadataState metadata);
 
     /// Takes all subscribers regardless of state (pools disabled, actor shutdown).

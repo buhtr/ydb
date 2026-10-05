@@ -1782,7 +1782,6 @@ private:
         switch (info.State) {
             case NWorkloadManager::EReadyState::Ready:
             case NWorkloadManager::EReadyState::Disabled:
-            case NWorkloadManager::EReadyState::Skip:
                 return true;
 
             case NWorkloadManager::EReadyState::Failed: {

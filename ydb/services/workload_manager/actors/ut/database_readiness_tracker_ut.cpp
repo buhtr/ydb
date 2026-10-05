@@ -75,7 +75,7 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
 
     // Database is Ready, classifier metadata is not. Subscribers:
     // - are held while metadata is Pending,
-    // - are released with SUCCESS once metadata times out.
+    // - are released with retryable UNAVAILABLE once metadata times out.
     Y_UNIT_TEST_F(TestReadyWaitsForMetadata, TDatabaseTrackerFixture) {
         Subscribe(1);
         FetchSucceeded();
@@ -84,12 +84,12 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
 
         const auto replies = TakeSettled(EMetadataState::TimedOut);
         UNIT_ASSERT_VALUES_EQUAL(replies.size(), 1);
-        UNIT_ASSERT_VALUES_EQUAL(replies[0].Status, Ydb::StatusIds::SUCCESS);
+        UNIT_ASSERT_VALUES_EQUAL(replies[0].Status, Ydb::StatusIds::UNAVAILABLE);
     }
 
     // Database info fetch fails. The tracker:
     // - marks the database Failed and replies with the fetch status and message for a non-retryable error,
-    // - marks it TimedOut and replies with SUCCESS for a retryable error (WLM is skipped),
+    // - marks it TimedOut and replies with retryable UNAVAILABLE for a retryable error,
     // - marks UNSUPPORTED as Unsupported and replies with SUCCESS.
     Y_UNIT_TEST_F(TestFetchFailure, TDatabaseTrackerFixture) {
         const TString retryable = "/Root/retryable";
@@ -112,6 +112,8 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
             if (reply.Cookie == 1) {
                 UNIT_ASSERT_VALUES_EQUAL(reply.Status, Ydb::StatusIds::NOT_FOUND);
                 UNIT_ASSERT_VALUES_EQUAL(reply.Message, "fetch failed");
+            } else if (reply.Cookie == 2) {
+                UNIT_ASSERT_VALUES_EQUAL(reply.Status, Ydb::StatusIds::UNAVAILABLE);
             } else {
                 UNIT_ASSERT_VALUES_EQUAL(reply.Status, Ydb::StatusIds::SUCCESS);
             }
@@ -120,7 +122,7 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
 
     // Database info fetch hangs. The tracker:
     // - keeps the database Pending before the limit,
-    // - moves it to TimedOut past the limit and releases subscribers with SUCCESS,
+    // - moves it to TimedOut past the limit and releases subscribers with retryable UNAVAILABLE,
     // - accepts a late fetch result and becomes Ready.
     Y_UNIT_TEST_F(TestPendingTimesOut, TDatabaseTrackerFixture) {
         Subscribe(1);
@@ -134,7 +136,7 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
 
         const auto replies = TakeSettled(EMetadataState::Pending);
         UNIT_ASSERT_VALUES_EQUAL(replies.size(), 1);
-        UNIT_ASSERT_VALUES_EQUAL(replies[0].Status, Ydb::StatusIds::SUCCESS);
+        UNIT_ASSERT_VALUES_EQUAL(replies[0].Status, Ydb::StatusIds::UNAVAILABLE);
 
         FetchSucceeded(DATABASE, DATABASE, false, T0 + TIMEOUT * 3);
         UNIT_ASSERT(State() == EDatabaseState::Ready);

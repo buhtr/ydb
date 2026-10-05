@@ -53,6 +53,7 @@ struct TFixture {
         Runtime.RegisterService(MakeServiceId(NodeId), ServicesEdge);
 
         StateActor = Runtime.Register(CreateWorkloadManagerStateActor(Gateway));
+        Runtime.EnableScheduleForActor(StateActor);
 
         TDispatchOptions options;
         options.FinalEvents.emplace_back(TEvents::TSystem::Bootstrap, 1);

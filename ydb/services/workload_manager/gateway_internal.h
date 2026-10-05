@@ -100,11 +100,6 @@ public:
         return Snapshot_;
     }
 
-    NActors::TActorId GetStateActorId() const {
-        TSnapshotPtr snapshot = Snapshot_;
-        return snapshot ? snapshot->StateActorId : NActors::TActorId();
-    }
-
 private:
     static void DoWarmupRequest(const NActors::TActorId& stateActorId, const TString& databaseId);
 

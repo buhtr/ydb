@@ -4,7 +4,7 @@
 #include <ydb/core/testlib/test_client.h>
 #include <ydb/services/metadata/abstract/common.h>
 #include <ydb/services/workload_manager/events.h>
-#include <ydb/services/workload_manager/gateway_internal.h>
+#include <ydb/services/workload_manager/actors/workload_manager_state_actor.h>
 #include <ydb/services/workload_manager/service/service.h>
 #include <ydb/services/workload_manager/ut/common/query_classifier_ut_common.h>
 
@@ -45,9 +45,7 @@ struct TWlmFixture {
     }
 
     TActorId StateActorId() const {
-        const auto gateway = std::static_pointer_cast<NWorkloadManager::NPrivate::TWorkloadManagerGateway>(
-            Runtime->GetAppData().WorkloadManagerGateway);
-        return gateway->GetStateActorId();
+        return Runtime->GetLocalServiceId(NWorkloadManager::MakeWorkloadManagerStateActorId(Runtime->GetNodeId(0)));
     }
 
     static Tests::TServerSettings BuildSettings(TPortManager& tp) {

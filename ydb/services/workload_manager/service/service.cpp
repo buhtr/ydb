@@ -17,8 +17,6 @@
 
 #include <ydb/core/mind/tenant_node_enumeration.h>
 
-#include <ydb/services/metadata/abstract/common.h>
-
 #include <ydb/core/protos/console_config.pb.h>
 #include <ydb/core/protos/feature_flags.pb.h>
 #include <ydb/core/protos/workload_manager_config.pb.h>
@@ -86,6 +84,7 @@ public:
         EnabledResourcePoolsOnServerless = AppData()->FeatureFlags.GetEnableResourcePoolsOnServerless() || WorkloadManagerConfig.GetEnabled();
         EnableResourcePoolsCounters = AppData()->FeatureFlags.GetEnableResourcePoolsCounters();
         StateActor = Register(CreateWorkloadManagerStateActor(Gateway));
+        TActivationContext::ActorSystem()->RegisterLocalService(MakeWorkloadManagerStateActorId(SelfId().NodeId()), StateActor);
         if (EnabledResourcePools) {
             InitializeWorkloadService();
         }
@@ -190,11 +189,6 @@ public:
         }
 
         const TString& databaseId = ev->Get()->DatabaseId;
-        if (!EnabledResourcePoolsOnServerless && IsServerlessInSnapshot(databaseId)) {
-            ReplyContinueError(workerActorId, ev->Get()->QueryId, Ydb::StatusIds::UNSUPPORTED,
-                               "Resource pools are disabled for serverless domains. Please contact your system administrator to enable it");
-            return;
-        }
         LOG_D("Received new request from " << workerActorId << ", DatabaseId: " << databaseId << ", PoolId: " << ev->Get()->PoolId << ", SessionId: " << ev->Get()->SessionId);
         GetOrCreateDatabaseState(databaseId)->DoPlaceRequest(std::move(ev));
     }
@@ -235,13 +229,6 @@ public:
         }
     }
 
-    // Test-only: WaitForClassifierPropagation injects TEvRefreshSubscriberData via this well-known service id; forward to cache actor.
-    void Handle(NMetadata::NProvider::TEvRefreshSubscriberData::TPtr& ev) {
-        if (StateActor) {
-            TActivationContext::Send(ev->Forward(StateActor));
-        }
-    }
-
     STRICT_STFUNC(MainState,
         sFunc(TEvents::TEvPoison, HandlePoison);
         sFunc(NConsole::TEvConfigsDispatcher::TEvSetConfigSubscriptionResponse, HandleSetConfigSubscriptionResponse);
@@ -253,7 +240,6 @@ public:
         hFunc(TEvPlaceRequestIntoPool, Handle);
         hFunc(TEvCleanupRequest, Handle);
         hFunc(TEvents::TEvWakeup, Handle);
-        hFunc(NMetadata::NProvider::TEvRefreshSubscriberData, Handle);
 
         hFunc(TEvFetchDatabaseResponse, Handle);
         hFunc(TEvPrivate::TEvFetchPoolResponse, Handle);
@@ -718,18 +704,6 @@ private:
 
     TString LogPrefix() const {
         return "[Service] ";
-    }
-
-    bool IsServerlessInSnapshot(const TString& databaseId) const {
-        if (!Gateway) {
-            return false;
-        }
-        auto snapshot = Gateway->GetSnapshot();
-        if (!snapshot) {
-            return false;
-        }
-        const auto it = snapshot->Databases.find(databaseId);
-        return it != snapshot->Databases.end() && it->second.Serverless;
     }
 
 private:

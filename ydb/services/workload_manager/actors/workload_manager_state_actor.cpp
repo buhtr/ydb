@@ -459,7 +459,6 @@ private:
         }
 
         if (MetadataTracker_.OnPoolsEnabled(EnableResourcePools_, TActivationContext::Now())) {
-            AskMetadataForClassifiers();
             ScheduleInFlightRequestsCheck();
         }
 
@@ -519,6 +518,11 @@ private:
     ui32 FreeWatchKey_ = 0;
 };
 
+}
+
+NActors::TActorId MakeWorkloadManagerStateActorId(ui32 nodeId) {
+    const char name[12] = "kqp_wm_stat";
+    return NActors::TActorId(nodeId, TStringBuf(name, 12));
 }
 
 NActors::IActor* CreateWorkloadManagerStateActor(

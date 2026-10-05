@@ -15,8 +15,9 @@ namespace NKikimr::NWorkloadManager {
 enum class EReadyState {
     Ready,
     Pending,
-    ClassificationDisabled,
+    Disabled,
     Failed,
+    Skip,
 };
 
 struct TReadyInfo {
@@ -42,6 +43,8 @@ public:
         const TString& databaseId, TClassifyContext context) = 0;
 
     /// Check whether the workload manager is ready to classify queries for this database.
+    /// Skip means the wait for DB info / classifier metadata timed out; the caller should
+    /// proceed without waiting.
     [[nodiscard]] virtual TReadyInfo EnsureReady(const TString& databaseId) = 0;
 
     /// Subscribe to event when workload manager is ready to classify queries for

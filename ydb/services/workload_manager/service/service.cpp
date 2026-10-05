@@ -167,7 +167,7 @@ public:
         }
     }
 
-    void Handle(TEvGetPoolInfo::TPtr& ev) {
+    void Handle(TEvSubscribeOnPoolChanges::TPtr& ev) {
         const TString& databaseId = ev->Get()->DatabaseId;
         const TString& poolId = ev->Get()->PoolId;
         if (!EnabledResourcePools) {
@@ -176,7 +176,7 @@ public:
         }
 
         LOG_D("Received subscription request, DatabaseId: " << databaseId << ", PoolId: " << poolId);
-        GetOrCreateDatabaseState(databaseId)->DoGetPoolInfo(std::move(ev));
+        GetOrCreateDatabaseState(databaseId)->DoSubscribeRequest(std::move(ev));
     }
 
     void Handle(TEvPlaceRequestIntoPool::TPtr& ev) {
@@ -246,7 +246,7 @@ public:
         hFunc(TEvTenantNodeEnumerator::TEvLookupResult, Handle);
         hFunc(TEvents::TEvUndelivered, Handle);
 
-        hFunc(TEvGetPoolInfo, Handle);
+        hFunc(TEvSubscribeOnPoolChanges, Handle);
         hFunc(TEvPlaceRequestIntoPool, Handle);
         hFunc(TEvCleanupRequest, Handle);
         hFunc(TEvents::TEvWakeup, Handle);

@@ -14,10 +14,25 @@
 
 namespace NKikimr::NWorkloadManager::NPrivate {
 
+enum class EDatabaseState {
+    Pending,
+    Ready,
+    Failed,
+    TimedOut,
+    Unsupported,
+};
+
+enum class EMetadataState {
+    Pending,
+    Ready,
+    TimedOut,
+};
+
 struct TDatabaseInfo {
+    EDatabaseState State = EDatabaseState::Pending;
     bool Serverless = false;
-    Ydb::StatusIds::StatusCode FetchStatus = Ydb::StatusIds::SUCCESS;
-    TString FetchMessage;
+    Ydb::StatusIds::StatusCode FailureStatus = Ydb::StatusIds::SUCCESS;
+    TString FailureMessage;
 };
 
 ///
@@ -29,7 +44,7 @@ struct TSnapshot {
     THashMap<TString, TDatabaseInfo> Databases;
     bool EnableResourcePools = false;
     bool EnableResourcePoolsOnServerless = false;
-    bool ClassifierMetadataInitialized = false;
+    EMetadataState Metadata = EMetadataState::Pending;
 
     bool IsResourcePoolsEnabled(const TString& databaseId) const {
         if (!EnableResourcePools) {
@@ -39,7 +54,7 @@ struct TSnapshot {
         if (it == Databases.end()) {
             return false;
         }
-        if (it->second.FetchStatus != Ydb::StatusIds::SUCCESS) {
+        if (it->second.State != EDatabaseState::Ready) {
             return false;
         }
         return EnableResourcePoolsOnServerless || !it->second.Serverless;
@@ -57,6 +72,11 @@ class TWorkloadManagerGateway : public IGateway {
 public:
     void OnRegistered(NActors::TActorId stateActorId) {
         StateActorId_ = stateActorId;
+    }
+
+    void OnUnregistered() {
+        StateActorId_ = {};
+        Snapshot_.atomic_store(TSnapshotPtr());
     }
 
     void PublishSnapshot(TSnapshotPtr snapshot) {

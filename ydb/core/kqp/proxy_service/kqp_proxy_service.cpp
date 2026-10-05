@@ -656,6 +656,12 @@ public:
 
         DatabasesCache.StopSubscriberActor(ActorContext());
 
+        for (auto& [_, parked] : ParkedClassifierReady) {
+            HandleDelayedRequestError(EDelayedRequestType::WorkloadManagerClassifierReady, std::move(parked),
+                Ydb::StatusIds::UNAVAILABLE, {NYql::TIssue("KQP proxy is shutting down")});
+        }
+        ParkedClassifierReady.clear();
+
         return TActor::PassAway();
     }
 
@@ -2033,7 +2039,7 @@ private:
         const auto info = gateway->EnsureReady(databaseId);
         switch (info.State) {
             case NWorkloadManager::EReadyState::Ready:
-            case NWorkloadManager::EReadyState::ClassificationDisabled:
+            case NWorkloadManager::EReadyState::Disabled:
                 return true;
 
             case NWorkloadManager::EReadyState::Failed: {

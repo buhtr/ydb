@@ -11,6 +11,7 @@ SRCS(
 PEERDIR(
     ydb/services/workload_manager/service
 
+    yql/essentials/public/udf/service/exception_policy
     yql/essentials/sql/pg_dummy
 )
 

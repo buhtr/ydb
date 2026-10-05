@@ -13,6 +13,7 @@
 #include <ydb/core/base/appdata.h>
 #include <ydb/core/base/path.h>
 #include <ydb/core/cms/console/console.h>
+#include <ydb/core/protos/feature_flags.pb.h>
 #include <ydb/core/kqp/common/simple/services.h>
 #include <ydb/core/kqp/runtime/scheduler/kqp_compute_scheduler_service.h>
 #include <ydb/core/testlib/basics/appdata.h>

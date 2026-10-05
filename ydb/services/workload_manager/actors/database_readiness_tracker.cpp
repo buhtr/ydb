@@ -72,6 +72,8 @@ bool TDatabaseReadinessTracker::OnFetchResult(const TString& path, const TString
             entry.StateAt = now;
             if (status == Ydb::StatusIds::UNSUPPORTED) {
                 entry.State = EDatabaseState::Unsupported;
+            } else if (IsRetryable(status)) {
+                entry.State = EDatabaseState::TimedOut;
             } else {
                 entry.State = EDatabaseState::Failed;
                 entry.FailureStatus = status;
@@ -169,6 +171,17 @@ std::optional<TString> TDatabaseReadinessTracker::MarkFetchInFlight(const TStrin
         return std::nullopt;
     }
     return path;
+}
+
+bool TDatabaseReadinessTracker::IsRetryable(Ydb::StatusIds::StatusCode status) {
+    switch (status) {
+        case Ydb::StatusIds::UNAVAILABLE:
+        case Ydb::StatusIds::OVERLOADED:
+        case Ydb::StatusIds::TIMEOUT:
+            return true;
+        default:
+            return false;
+    }
 }
 
 bool TDatabaseReadinessTracker::IsSettled(const TEntry& entry, EMetadataState metadata) {

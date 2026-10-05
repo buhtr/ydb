@@ -116,7 +116,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
     Y_UNIT_TEST_F(TestEnsureReadyDatabaseStates, TGatewayFixture) {
         using EState = NPrivate::EDatabaseState;
         auto failed = DatabaseInfo(EState::Failed);
-        failed.FailureStatus = Ydb::StatusIds::UNAVAILABLE;
+        failed.FailureStatus = Ydb::StatusIds::NOT_FOUND;
         failed.FailureMessage = "fetch failed";
         Publish({
             {"/Root/pending", DatabaseInfo(EState::Pending)},
@@ -136,7 +136,7 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
 
         const auto info = EnsureReady("/Root/failed");
         UNIT_ASSERT(info.State == EReadyState::Failed);
-        UNIT_ASSERT_VALUES_EQUAL(info.FailureStatus, Ydb::StatusIds::UNAVAILABLE);
+        UNIT_ASSERT_VALUES_EQUAL(info.FailureStatus, Ydb::StatusIds::NOT_FOUND);
         UNIT_ASSERT_VALUES_EQUAL(info.FailureMessage, "fetch failed");
     }
 

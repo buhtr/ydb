@@ -84,24 +84,29 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
     }
 
     // Database info fetch fails. The tracker:
-    // - marks the database Failed and replies with the fetch status and message,
+    // - marks the database Failed and replies with the fetch status and message for a non-retryable error,
+    // - marks it TimedOut and replies with SUCCESS for a retryable error (WLM is skipped),
     // - marks UNSUPPORTED as Unsupported and replies with SUCCESS.
     Y_UNIT_TEST_F(TestFetchFailure, TDatabaseTrackerFixture) {
+        const TString retryable = "/Root/retryable";
         const TString unsupported = "/Root/unsupported";
         Subscribe(1);
-        Subscribe(2, unsupported);
+        Subscribe(2, retryable);
+        Subscribe(3, unsupported);
 
-        FetchFailed(Ydb::StatusIds::UNAVAILABLE, "fetch failed");
+        FetchFailed(Ydb::StatusIds::NOT_FOUND, "fetch failed");
+        FetchFailed(Ydb::StatusIds::UNAVAILABLE, "retry limit exceeded", retryable);
         FetchFailed(Ydb::StatusIds::UNSUPPORTED, {}, unsupported);
 
         UNIT_ASSERT(State() == EDatabaseState::Failed);
+        UNIT_ASSERT(State(retryable) == EDatabaseState::TimedOut);
         UNIT_ASSERT(State(unsupported) == EDatabaseState::Unsupported);
 
         const auto replies = TakeSettled(EMetadataState::Pending);
-        UNIT_ASSERT_VALUES_EQUAL(replies.size(), 2);
+        UNIT_ASSERT_VALUES_EQUAL(replies.size(), 3);
         for (const auto& reply : replies) {
             if (reply.Cookie == 1) {
-                UNIT_ASSERT_VALUES_EQUAL(reply.Status, Ydb::StatusIds::UNAVAILABLE);
+                UNIT_ASSERT_VALUES_EQUAL(reply.Status, Ydb::StatusIds::NOT_FOUND);
                 UNIT_ASSERT_VALUES_EQUAL(reply.Message, "fetch failed");
             } else {
                 UNIT_ASSERT_VALUES_EQUAL(reply.Status, Ydb::StatusIds::SUCCESS);
@@ -137,7 +142,7 @@ Y_UNIT_TEST_SUITE(DatabaseReadinessTracker) {
     // - turns the database Ready on a successful refetch.
     Y_UNIT_TEST_F(TestFailedRequeryRecovers, TDatabaseTrackerFixture) {
         Subscribe(1);
-        FetchFailed(Ydb::StatusIds::UNAVAILABLE, "fetch failed");
+        FetchFailed(Ydb::StatusIds::NOT_FOUND, "fetch failed");
         TakeSettled();
 
         UNIT_ASSERT(!Tracker.OnWarmup(DATABASE, T0 + TIMEOUT / 2));

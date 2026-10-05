@@ -53,7 +53,8 @@ public:
     /// Returns the path to fetch for an unknown DB, or to requery a Failed/TimedOut DB past the timeout.
     std::optional<TString> OnWarmup(const TString& path, TInstant now);
 
-    /// Applies a fetch result to all non-Ready entries of the path: Ready, Failed or Unsupported.
+    /// Applies a fetch result to all non-Ready entries of the path: Ready, Unsupported,
+    /// TimedOut for retryable errors (skip WLM, requery later) or Failed for other errors.
     /// Returns true if the state changed.
     bool OnFetchResult(const TString& path, const TString& databaseId, Ydb::StatusIds::StatusCode status,
                        const TString& message, bool serverless, TInstant now);
@@ -78,6 +79,7 @@ public:
 
 private:
     std::optional<TString> MarkFetchInFlight(const TString& path);
+    static bool IsRetryable(Ydb::StatusIds::StatusCode status);
     static bool IsSettled(const TEntry& entry, EMetadataState metadata);
 
 private:

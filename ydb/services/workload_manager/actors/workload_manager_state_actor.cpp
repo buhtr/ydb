@@ -40,6 +40,14 @@ namespace {
 constexpr TDuration IN_FLIGHT_REQUEST_TIMEOUT = TDuration::Seconds(5);
 constexpr TDuration IN_FLIGHT_REQUESTS_CHECK_PERIOD = TDuration::Seconds(1);
 
+bool IsResourcePoolsEnabled(const NKikimrConfig::TFeatureFlags& featureFlags, const NKikimrConfig::TWorkloadManagerConfig& workloadManagerConfig) {
+    return featureFlags.GetEnableResourcePools() || workloadManagerConfig.GetEnabled();
+}
+
+bool IsResourcePoolsOnServerlessEnabled(const NKikimrConfig::TFeatureFlags& featureFlags, const NKikimrConfig::TWorkloadManagerConfig& workloadManagerConfig) {
+    return featureFlags.GetEnableResourcePoolsOnServerless() || workloadManagerConfig.GetEnabled();
+}
+
 }
 
 std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQueryClassifier(
@@ -57,7 +65,7 @@ std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQu
 
     if (!snapshot->Pools || !snapshot->Pools->contains(GetPoolKey(databaseId, effectivePoolId))) {
         NActors::TActivationContext::Send(new NActors::IEventHandle(
-            StateActorId_, {},
+            snapshot->StateActorId, {},
             new TEvEnsurePoolSubscribed(databaseId, effectivePoolId)));
     }
 
@@ -69,23 +77,16 @@ std::shared_ptr<IQueryClassifier> NPrivate::TWorkloadManagerGateway::TryCreateQu
         *AppData());
 }
 
-void NPrivate::TWorkloadManagerGateway::DoWarmupRequest(const TString& databaseId) {
-    if (!StateActorId_) {
-        return;
-    }
-
+void NPrivate::TWorkloadManagerGateway::DoWarmupRequest(const NActors::TActorId& stateActorId, const TString& databaseId) {
     NActors::TActivationContext::Send(new NActors::IEventHandle(
-        StateActorId_, {}, new TEvWarmupDatabaseInfo(DatabaseIdToDatabase(databaseId))));
+        stateActorId, {}, new TEvWarmupDatabaseInfo(DatabaseIdToDatabase(databaseId))));
 }
 
 TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databaseId) {
     TSnapshotPtr snapshot = Snapshot_;
 
     if (!snapshot) {
-        if (!StateActorId_) {
-            return TReadyInfo{.State = EReadyState::Disabled};
-        }
-        return TReadyInfo{.State = EReadyState::Pending};
+        return TReadyInfo{.State = EReadyState::Disabled};
     }
 
     if (!snapshot->EnableResourcePools) {
@@ -106,11 +107,11 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
             return TReadyInfo{.State = EReadyState::Disabled};
 
         case EDatabaseState::Failed:
-            DoWarmupRequest(databaseId);
+            DoWarmupRequest(snapshot->StateActorId, databaseId);
             return TReadyInfo{.State = EReadyState::Failed, .FailureStatus = info.FailureStatus, .FailureMessage = info.FailureMessage};
 
         case EDatabaseState::TimedOut:
-            DoWarmupRequest(databaseId);
+            DoWarmupRequest(snapshot->StateActorId, databaseId);
             return TReadyInfo{.State = EReadyState::Skip};
 
         case EDatabaseState::Ready:
@@ -129,7 +130,7 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
             return TReadyInfo{.State = EReadyState::Pending};
 
         case EMetadataState::TimedOut:
-            DoWarmupRequest(databaseId);
+            DoWarmupRequest(snapshot->StateActorId, databaseId);
             return TReadyInfo{.State = EReadyState::Skip};
     }
 
@@ -138,7 +139,8 @@ TReadyInfo NPrivate::TWorkloadManagerGateway::EnsureReady(const TString& databas
 
 void NPrivate::TWorkloadManagerGateway::SubscribeOnReady(const TString& databaseId,
                                                           NActors::TActorId subscriber, ui64 cookie) {
-    if (!StateActorId_) {
+    TSnapshotPtr snapshot = Snapshot_;
+    if (!snapshot) {
         NActors::TActivationContext::Send(new NActors::IEventHandle(
             subscriber, {},
             new TEvWorkloadManagerReady(cookie, Ydb::StatusIds::UNAVAILABLE,
@@ -146,16 +148,17 @@ void NPrivate::TWorkloadManagerGateway::SubscribeOnReady(const TString& database
         return;
     }
     NActors::TActivationContext::Send(new NActors::IEventHandle(
-        StateActorId_, subscriber,
+        snapshot->StateActorId, subscriber,
         new TEvSubscribeOnWorkloadManagerReady(databaseId, subscriber, cookie)));
 }
 
 void NPrivate::TWorkloadManagerGateway::Warmup(const TString& databasePath) {
-    if (!StateActorId_ || !databasePath) {
+    TSnapshotPtr snapshot = Snapshot_;
+    if (!snapshot || !databasePath) {
         return;
     }
     NActors::TActivationContext::Send(new NActors::IEventHandle(
-        StateActorId_, {}, new TEvWarmupDatabaseInfo(CanonizePath(databasePath))));
+        snapshot->StateActorId, {}, new TEvWarmupDatabaseInfo(CanonizePath(databasePath))));
 }
 
 namespace {
@@ -183,7 +186,12 @@ public:
 
     void Registered(TActorSystem* sys, const TActorId& owner) override {
         TActorBootstrapped::Registered(sys, owner);
-        Gateway_->OnRegistered(SelfId());
+        const auto* appData = sys->AppData<TAppData>();
+        auto* snapshot = new NPrivate::TSnapshot();
+        snapshot->StateActorId = SelfId();
+        snapshot->EnableResourcePools = IsResourcePoolsEnabled(appData->FeatureFlags, appData->WorkloadManagerConfig);
+        snapshot->EnableResourcePoolsOnServerless = IsResourcePoolsOnServerlessEnabled(appData->FeatureFlags, appData->WorkloadManagerConfig);
+        Gateway_->PublishSnapshot(NPrivate::TSnapshotPtr(snapshot));
     }
 
     void Bootstrap() {
@@ -437,8 +445,8 @@ private:
     }
 
     void ApplyConfig(const NKikimrConfig::TFeatureFlags& featureFlags, const NKikimrConfig::TWorkloadManagerConfig& workloadManagerConfig) {
-        EnableResourcePools_ = featureFlags.GetEnableResourcePools() || workloadManagerConfig.GetEnabled();
-        EnableResourcePoolsOnServerless_ = featureFlags.GetEnableResourcePoolsOnServerless() || workloadManagerConfig.GetEnabled();
+        EnableResourcePools_ = IsResourcePoolsEnabled(featureFlags, workloadManagerConfig);
+        EnableResourcePoolsOnServerless_ = IsResourcePoolsOnServerlessEnabled(featureFlags, workloadManagerConfig);
 
         if (EnableResourcePools_) {
             SubscribeOnMetadataForClassifiers();
@@ -479,6 +487,7 @@ private:
         snapshot->Pools = PoolTracker_.BuildSnapshot();
         snapshot->Classifiers = LastClassifierSnapshot_;
         DatabaseTracker_.Fill(*snapshot);
+        snapshot->StateActorId = SelfId();
         snapshot->EnableResourcePools = EnableResourcePools_;
         snapshot->EnableResourcePoolsOnServerless = EnableResourcePoolsOnServerless_;
         snapshot->Metadata = MetadataTracker_.GetState();

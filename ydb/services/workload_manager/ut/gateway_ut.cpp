@@ -30,7 +30,6 @@ struct TGatewayFixture : public NUnitTest::TBaseFixture {
         Runtime.Initialize(app.Unwrap());
         Runtime.GetAppData().WorkloadManagerGateway = Gateway;
         StateActorEdge = Runtime.AllocateEdgeActor();
-        Gateway->OnRegistered(StateActorEdge);
     }
 
     void Publish(THashMap<TString, NPrivate::TDatabaseInfo> databases,
@@ -38,6 +37,7 @@ struct TGatewayFixture : public NUnitTest::TBaseFixture {
                  bool enableResourcePools = true) {
         auto* snapshot = new NPrivate::TSnapshot();
         snapshot->Databases = std::move(databases);
+        snapshot->StateActorId = StateActorEdge;
         snapshot->EnableResourcePools = enableResourcePools;
         snapshot->Metadata = metadata;
         Gateway->PublishSnapshot(NPrivate::TSnapshotPtr(snapshot));
@@ -75,6 +75,35 @@ Y_UNIT_TEST_SUITE(WorkloadManagerGateway) {
     // No snapshot published yet: TryCreateQueryClassifier returns nullptr.
     Y_UNIT_TEST_F(TestTryCreateQueryClassifierNullBeforeSnapshot, TGatewayFixture) {
         UNIT_ASSERT(!TryCreateQueryClassifier(TEST_DB));
+    }
+
+    // No snapshot (no state actor). The gateway:
+    // - returns Disabled from EnsureReady,
+    // - replies UNAVAILABLE to a subscriber at once.
+    Y_UNIT_TEST_F(TestNoSnapshotMeansNoStateActor, TGatewayFixture) {
+        UNIT_ASSERT(EnsureReady(TEST_DB).State == EReadyState::Disabled);
+
+        const TActorId subscriber = Runtime.AllocateEdgeActor();
+        Runtime.RunCall([subscriber] {
+            AppData()->WorkloadManagerGateway->SubscribeOnReady(TEST_DB, subscriber, /*cookie=*/1);
+            return 0;
+        });
+        auto ready = Runtime.GrabEdgeEvent<TEvWorkloadManagerReady>(subscriber, TDuration::Seconds(10));
+        UNIT_ASSERT(ready);
+        UNIT_ASSERT_EQUAL(ready->Get()->Status, Ydb::StatusIds::UNAVAILABLE);
+    }
+
+    // State actor registered, Bootstrap not processed yet. The published snapshot:
+    // - carries the state actor id,
+    // - has resource pools enabled from AppData, so EnsureReady waits instead of skipping admission.
+    Y_UNIT_TEST_F(TestSnapshotPublishedOnRegister, TGatewayFixture) {
+        const TActorId stateActor = Runtime.Register(CreateWorkloadManagerStateActor(Gateway));
+
+        const auto snapshot = Gateway->GetSnapshot();
+        UNIT_ASSERT(snapshot);
+        UNIT_ASSERT_EQUAL(snapshot->StateActorId, stateActor);
+        UNIT_ASSERT(snapshot->EnableResourcePools);
+        UNIT_ASSERT(snapshot->Databases.empty());
     }
 
     // State actor publishes a Ready database: TryCreateQueryClassifier returns a classifier.

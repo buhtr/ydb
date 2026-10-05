@@ -30,6 +30,9 @@ struct TReadyInfo {
 /// Client-side interface for the Workload Manager gateway.
 /// Instance is created at node initialization and stored in
 /// `AppData()->WorkloadManagerGateway`; consumers access it synchronously.
+/// Must be called from an actor handler (uses the activation context).
+/// Callers that can wait use SubscribeOnReady; callers that cannot (e.g. background tablet work) treat Pending as Skip.
+/// TODO: classification context for non-query workloads (compaction, backup).
 ///
 class IGateway {
 public:

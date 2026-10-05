@@ -42,6 +42,7 @@ struct TSnapshot {
     TResourcePoolMapPtr Pools;
     std::shared_ptr<const TResourcePoolClassifierSnapshot> Classifiers;
     THashMap<TString, TDatabaseInfo> Databases;
+    NActors::TActorId StateActorId;
     bool EnableResourcePools = false;
     bool EnableResourcePoolsOnServerless = false;
     EMetadataState Metadata = EMetadataState::Pending;
@@ -65,17 +66,13 @@ using TSnapshotPtr = TTrueAtomicSharedPtr<TSnapshot>;
 
 ///
 /// Server-side implementation of IGateway. Created in the initializer and
-/// stored in `AppData()->WorkloadManagerGateway`. Cache actor writes
+/// stored in `AppData()->WorkloadManagerGateway`. State actor writes
 /// snapshots via `PublishSnapshot`; consumers call `TryCreateQueryClassifier`.
+/// All state, including the state actor id, is read from the published snapshot.
 ///
 class TWorkloadManagerGateway : public IGateway {
 public:
-    void OnRegistered(NActors::TActorId stateActorId) {
-        StateActorId_ = stateActorId;
-    }
-
     void OnUnregistered() {
-        StateActorId_ = {};
         Snapshot_.atomic_store(TSnapshotPtr());
     }
 
@@ -98,16 +95,14 @@ public:
     }
 
     NActors::TActorId GetStateActorId() const {
-        return StateActorId_;
+        TSnapshotPtr snapshot = Snapshot_;
+        return snapshot ? snapshot->StateActorId : NActors::TActorId();
     }
 
 private:
-    void DoWarmupRequest(const TString& databaseId);
+    static void DoWarmupRequest(const NActors::TActorId& stateActorId, const TString& databaseId);
 
     TSnapshotPtr Snapshot_;
-    // Written once from the state actor thread in OnRegistered() before the first
-    // PublishSnapshot(); readers reach it only after loading a non-null snapshot.
-    NActors::TActorId StateActorId_;
 };
 
 }

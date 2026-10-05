@@ -2,6 +2,8 @@
 
 #include <ydb/services/workload_manager/query_classifier.h>
 
+#include <ydb/core/base/appdata_fwd.h>
+
 #include <ydb/library/actors/core/actorid.h>
 #include <ydb/public/api/protos/ydb_status_codes.pb.h>
 
@@ -59,7 +61,5 @@ public:
     /// early (e.g. at query entry) so the prefetch overlaps with the caller's own work.
     virtual void Warmup(const TString& databasePath) = 0;
 };
-
-using TGatewayPtr = std::shared_ptr<IGateway>;
 
 }

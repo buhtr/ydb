@@ -1041,6 +1041,7 @@ public:
 
         if (sessionInfo) {
             LocalSessions->SetSessionClosing(sessionInfo);
+            FailParkedQueries(sessionId, Ydb::StatusIds::BAD_SESSION, "Session is closing");
             Send(sessionInfo->WorkerId, ev->Release().Release());
         } else {
             if (!sessionId.empty()) {
@@ -1130,6 +1131,7 @@ public:
                 reason += TStringBuilder() << " (initiator: " << initiatorSid << ")";
             }
             LocalSessions->SetSessionTerminating(sessionInfo, reason);
+            FailParkedQueries(sessionId, Ydb::StatusIds::CANCELLED, reason);
 
             YDB_LOG_INFO("Administrative session termination requested",
                 {"sessionId", sessionId},
@@ -1276,6 +1278,7 @@ public:
         Counters->ReportCancelQuery(dbCounters, request.ByteSize());
 
         PendingRequests.SetSessionId(requestId, sessionId, dbCounters);
+        FailParkedQueries(sessionId, Ydb::StatusIds::CANCELLED, "Request was canceled by user");
 
         TActorId targetId;
         if (sessionInfo) {
@@ -2058,6 +2061,21 @@ private:
         return true;
     }
 
+    void FailParkedQueries(const TString& sessionId, Ydb::StatusIds::StatusCode status, const TString& message) {
+        if (sessionId.empty()) {
+            return;
+        }
+        for (auto it = ParkedClassifierReady.begin(); it != ParkedClassifierReady.end();) {
+            if (it->second->Get<TEvKqp::TEvQueryRequest>()->GetSessionId() != sessionId) {
+                ++it;
+                continue;
+            }
+            HandleDelayedRequestError(EDelayedRequestType::WorkloadManagerClassifierReady, std::move(it->second),
+                status, {NYql::TIssue(message)});
+            ParkedClassifierReady.erase(it++);
+        }
+    }
+
     void SetupWorkloadManagerQueryClassifier(TEvKqp::TEvQueryRequest::TPtr& ev, const TKqpSessionInfo* sessionInfo, ui64 /*requestId*/) {
         if (ev->Get()->IsInternalCall() || ev->Get()->GetIsWarmupCompilation()) {
             return;
@@ -2361,7 +2379,7 @@ private:
         const ui64 cookie = ev->Get()->Cookie;
         auto it = ParkedClassifierReady.find(cookie);
         if (it == ParkedClassifierReady.end()) {
-            YDB_LOG_WARN("Received TEvWorkloadManagerReady with unknown cookie",
+            YDB_LOG_DEBUG("Received TEvWorkloadManagerReady with unknown cookie",
                 {"cookie", cookie});
             return;
         }

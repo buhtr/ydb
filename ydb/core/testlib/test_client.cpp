@@ -79,6 +79,7 @@
 #include <ydb/core/kqp/rm_service/kqp_rm_service.h>
 #include <ydb/core/kqp/proxy_service/kqp_proxy_service.h>
 #include <ydb/services/workload_manager/service/service.h>
+#include <ydb/services/workload_manager/actors/workload_manager_state_actor.h>
 #include <ydb/services/workload_manager/gateway_internal.h>
 #include <ydb/core/kqp/finalize_script_service/kqp_finalize_script_service.h>
 #include <ydb/core/metering/metering.h>
@@ -1410,7 +1411,10 @@ namespace Tests {
             auto& appData = Runtime->GetAppData(nodeIdx);
             auto gateway = std::make_shared<NWorkloadManager::NPrivate::TWorkloadManagerGateway>();
             appData.WorkloadManagerGateway = gateway;
-            IActor* workloadManager = NWorkloadManager::CreateService(NWorkloadManager::GetWorkloadManagerCounters(appData.Counters), gateway);
+            TActorId stateActorId = Runtime->Register(NWorkloadManager::CreateWorkloadManagerStateActor(gateway), nodeIdx, userPoolId, TMailboxType::HTSwap, 0);
+            Runtime->RegisterService(NWorkloadManager::MakeWorkloadManagerStateActorId(Runtime->GetNodeId(nodeIdx)), stateActorId, nodeIdx);
+
+            IActor* workloadManager = NWorkloadManager::CreateService(NWorkloadManager::GetWorkloadManagerCounters(appData.Counters));
             TActorId workloadManagerId = Runtime->Register(workloadManager, nodeIdx, userPoolId, TMailboxType::HTSwap, 0);
             Runtime->RegisterService(NWorkloadManager::MakeServiceId(Runtime->GetNodeId(nodeIdx)), workloadManagerId, nodeIdx);
         }
